@@ -1,9 +1,10 @@
 import type { FlightOffer } from '../types.js';
+import { computeAllInPrice, formatMoneyFromCents } from './pricing.js';
 
 interface Flight {
   airline: string;
   flight_number: string;
-  price: number;
+  price: string;
   departure_time: string; // HH:MM
   arrival_time: string;   // HH:MM
   return_departure_time?: string; // HH:MM
@@ -38,7 +39,11 @@ export function formatFlightOptionsSMS(
   route: { from: string; to: string; date: string; return_date?: string },
   options: Flight[],
 ): string {
-  const sorted = [...options].sort((a, b) => a.price - b.price);
+  const sorted = [...options].sort((a, b) => {
+    const pa = Number.parseFloat(a.price.replace(/[^0-9.]/g, '')) || 0;
+    const pb = Number.parseFloat(b.price.replace(/[^0-9.]/g, '')) || 0;
+    return pa - pb;
+  });
   const arrow = route.return_date ? '↔' : '→';
   const datePart = route.return_date
     ? `${formatDate(route.date)} – ${formatDate(route.return_date)}`
@@ -53,7 +58,7 @@ export function formatFlightOptionsSMS(
         : null;
 
     return [
-      `$${f.price} — ${f.airline} · ${f.flight_number}`,
+      `${f.price} — ${f.airline} · ${f.flight_number}`,
       out,
       ...(ret ? [ret] : []),
     ].join('\n');
@@ -69,7 +74,7 @@ export interface FlightConfirmation {
   date: string;        // e.g. "May 28"
   departure_time: string; // "20:54"
   arrival_time: string;   // "22:45"
-  price: number;
+  price: string;
 }
 
 export interface HeldOrderSummary {
@@ -82,7 +87,7 @@ export interface HeldOrderSummary {
   return_depart_time?: string; // HH:MM
   return_arrive_time?: string; // HH:MM
   airline: string;
-  price: number;
+  price: string;
 }
 
 export function formatHeldOrderConfirmationSMS(summary: HeldOrderSummary): string {
@@ -104,7 +109,7 @@ export function formatHeldOrderConfirmationSMS(summary: HeldOrderSummary): strin
     '',
     out,
     ...(ret ? [ret] : []),
-    `$${summary.price}`,
+    `${summary.price}`,
     '',
     'Reply HOLD to reserve it',
     'or BOOK to purchase now',
@@ -129,7 +134,7 @@ export function formatFlightConfirmationSMS(details: FlightConfirmation): string
     `${details.from} → ${details.to} · ${details.date}`,
     '',
     `${dep} → ${arr}`,
-    `$${details.price}`,
+    `${details.price}`,
     '',
     'Reply HOLD to reserve it',
     'or BOOK to purchase now',
@@ -150,10 +155,11 @@ export function offersToSMS(offers: FlightOffer[]): string {
   const flights: Flight[] = offers.map((o) => {
     const outSeg = o.slices[0].segments[0];
     const retSeg = o.slices[1]?.segments[0];
+    const allIn = computeAllInPrice(o.total_amount, o.total_currency);
     return {
       airline: outSeg.marketing_carrier_name,
       flight_number: outSeg.flight_number,
-      price: Math.round(parseFloat(o.total_amount)),
+      price: formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency),
       departure_time: extractHHMM(outSeg.departing_at),
       arrival_time: extractHHMM(outSeg.arriving_at),
       return_departure_time: retSeg ? extractHHMM(retSeg.departing_at) : undefined,

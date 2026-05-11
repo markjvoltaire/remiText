@@ -4,6 +4,7 @@ import { searchFlights, holdOrder, bookOrderInstant, getOfferPricing, payForOrde
 import { chargeViaSPT, refundPaymentIntent } from '../services/stripe.js';
 import { offersToSMS, formatHeldOrderConfirmationSMS } from '../utils/formatFlights.js';
 import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
+import { computeAllInPrice, formatMoneyFromCents } from '../utils/pricing.js';
 import { setLastFlightSearch, clearLastFlightSearch, setPendingOrder, clearPendingOrder, } from '../services/supabase.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
@@ -128,7 +129,8 @@ async function executeTool(toolName, input, user) {
         const from = order.slices[0]?.origin ?? '';
         const to = order.slices[0]?.destination ?? '';
         const airline = outSeg?.marketing_carrier_name ?? 'Airline';
-        const price = Math.round(parseFloat(order.total_amount));
+        const allIn = computeAllInPrice(order.total_amount, order.total_currency);
+        const price = formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency);
         const confirmation = formatHeldOrderConfirmationSMS({
             from,
             to,
@@ -209,7 +211,8 @@ async function executeTool(toolName, input, user) {
         }
         const amountStr = pricing.amount;
         const currency = pricing.currency.toLowerCase();
-        const amountInCents = Math.round(parseFloat(amountStr) * 100);
+        const allIn = computeAllInPrice(amountStr, currency);
+        const amountInCents = allIn.chargeAmountCents;
         let paymentIntentId;
         try {
             paymentIntentId = await chargeViaSPT(user.stripe_spt_id, amountInCents, currency, user.stripe_customer_id);
@@ -322,7 +325,8 @@ async function executeTool(toolName, input, user) {
                 message: "I don't have a held flight to book yet. Tell me which flight you want and I can hold it first.",
             });
         }
-        const amountInCents = Math.round(parseFloat(amountStr) * 100);
+        const allIn = computeAllInPrice(amountStr, currency);
+        const amountInCents = allIn.chargeAmountCents;
         await chargeViaSPT(user.stripe_spt_id, amountInCents, currency, user.stripe_customer_id);
         await payForOrderWithBalance(orderId, amountStr, currency.toUpperCase());
         await clearLastFlightSearch(user.id);

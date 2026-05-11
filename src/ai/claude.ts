@@ -11,6 +11,7 @@ import {
 import { chargeViaSPT, refundPaymentIntent } from '../services/stripe.js';
 import { offersToSMS, formatHeldOrderConfirmationSMS } from '../utils/formatFlights.js';
 import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
+import { computeAllInPrice, formatMoneyFromCents } from '../utils/pricing.js';
 import {
   setLastFlightSearch,
   clearLastFlightSearch,
@@ -157,7 +158,8 @@ async function executeTool(
     const from = order.slices[0]?.origin ?? '';
     const to = order.slices[0]?.destination ?? '';
     const airline = outSeg?.marketing_carrier_name ?? 'Airline';
-    const price = Math.round(parseFloat(order.total_amount));
+    const allIn = computeAllInPrice(order.total_amount, order.total_currency);
+    const price = formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency);
 
     const confirmation = formatHeldOrderConfirmationSMS({
       from,
@@ -245,7 +247,8 @@ async function executeTool(
 
     const amountStr = pricing.amount;
     const currency = pricing.currency.toLowerCase();
-    const amountInCents = Math.round(parseFloat(amountStr) * 100);
+    const allIn = computeAllInPrice(amountStr, currency);
+    const amountInCents = allIn.chargeAmountCents;
 
     let paymentIntentId: string | undefined;
     try {
@@ -374,7 +377,8 @@ async function executeTool(
       });
     }
 
-    const amountInCents = Math.round(parseFloat(amountStr) * 100);
+    const allIn = computeAllInPrice(amountStr, currency);
+    const amountInCents = allIn.chargeAmountCents;
 
     await chargeViaSPT(user.stripe_spt_id, amountInCents, currency, user.stripe_customer_id);
     await payForOrderWithBalance(orderId, amountStr, currency.toUpperCase());

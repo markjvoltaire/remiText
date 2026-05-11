@@ -1,4 +1,5 @@
 import type { FlightOffer, LastFlightSearchContext, PendingFlightOfferSummary } from '../types.js';
+import { computeAllInPrice } from './pricing.js';
 
 function extractHHMM(isoDatetime: string): string {
   return isoDatetime.split('T')[1]?.slice(0, 5) ?? '00:00';
@@ -8,11 +9,12 @@ export function summarizeOffersForContext(offers: FlightOffer[]): PendingFlightO
   return offers.map((o) => {
     const out = o.slices[0]?.segments[0];
     const ret = o.slices[1]?.segments[0];
+    const allIn = computeAllInPrice(o.total_amount, o.total_currency);
     return {
       offer_id: o.id,
       airline: out?.marketing_carrier_name ?? '',
       flight_number: out?.flight_number ?? '',
-      price: Math.round(parseFloat(o.total_amount)),
+      price: Math.round(allIn.chargeAmountCents / 100),
       currency: o.total_currency,
       outbound_depart: extractHHMM(out?.departing_at ?? ''),
       outbound_arrive: extractHHMM(out?.arriving_at ?? ''),

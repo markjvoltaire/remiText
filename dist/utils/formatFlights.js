@@ -1,3 +1,4 @@
+import { computeAllInPrice, formatMoneyFromCents } from './pricing.js';
 function formatTime(hhmm) {
     const [hourStr, min] = hhmm.split(':');
     const hour = parseInt(hourStr, 10);
@@ -20,7 +21,11 @@ function extractHHMM(isoDatetime) {
     return isoDatetime.split('T')[1]?.slice(0, 5) ?? '00:00';
 }
 export function formatFlightOptionsSMS(route, options) {
-    const sorted = [...options].sort((a, b) => a.price - b.price);
+    const sorted = [...options].sort((a, b) => {
+        const pa = Number.parseFloat(a.price.replace(/[^0-9.]/g, '')) || 0;
+        const pb = Number.parseFloat(b.price.replace(/[^0-9.]/g, '')) || 0;
+        return pa - pb;
+    });
     const arrow = route.return_date ? '↔' : '→';
     const datePart = route.return_date
         ? `${formatDate(route.date)} – ${formatDate(route.return_date)}`
@@ -32,7 +37,7 @@ export function formatFlightOptionsSMS(route, options) {
             ? `Return: ${formatTime(f.return_departure_time)} → ${formatTime(f.return_arrival_time)}`
             : null;
         return [
-            `$${f.price} — ${f.airline} · ${f.flight_number}`,
+            `${f.price} — ${f.airline} · ${f.flight_number}`,
             out,
             ...(ret ? [ret] : []),
         ].join('\n');
@@ -56,7 +61,7 @@ export function formatHeldOrderConfirmationSMS(summary) {
         '',
         out,
         ...(ret ? [ret] : []),
-        `$${summary.price}`,
+        `${summary.price}`,
         '',
         'Reply HOLD to reserve it',
         'or BOOK to purchase now',
@@ -78,7 +83,7 @@ export function formatFlightConfirmationSMS(details) {
         `${details.from} → ${details.to} · ${details.date}`,
         '',
         `${dep} → ${arr}`,
-        `$${details.price}`,
+        `${details.price}`,
         '',
         'Reply HOLD to reserve it',
         'or BOOK to purchase now',
@@ -97,10 +102,11 @@ export function offersToSMS(offers) {
     const flights = offers.map((o) => {
         const outSeg = o.slices[0].segments[0];
         const retSeg = o.slices[1]?.segments[0];
+        const allIn = computeAllInPrice(o.total_amount, o.total_currency);
         return {
             airline: outSeg.marketing_carrier_name,
             flight_number: outSeg.flight_number,
-            price: Math.round(parseFloat(o.total_amount)),
+            price: formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency),
             departure_time: extractHHMM(outSeg.departing_at),
             arrival_time: extractHHMM(outSeg.arriving_at),
             return_departure_time: retSeg ? extractHHMM(retSeg.departing_at) : undefined,
