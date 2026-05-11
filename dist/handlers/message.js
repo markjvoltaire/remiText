@@ -74,8 +74,11 @@ async function sendReplyWithAttachments(message, text, images) {
         await message.reply(text);
         return;
     }
+    const tail = [...rest, text];
+    const second = tail[0];
+    const remaining = tail.slice(1);
     try {
-        await message.reply(text, first, ...rest);
+        await message.reply(first, second, ...remaining);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
