@@ -1,6 +1,6 @@
-import { attachment, group } from 'spectrum-ts';
+import { attachment } from 'spectrum-ts';
 import { claimMessage, getUserByPhone, getConversationHistory, appendMessage } from '../services/supabase.js';
-import { markRead } from '../services/imessage.js';
+import { markRead, sendPhotoStack } from '../services/imessage.js';
 import { runAgentLoop } from '../ai/claude.js';
 import { getOnboardingSession, startOnboarding, advanceOnboarding } from '../services/onboarding.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
@@ -58,12 +58,29 @@ export async function handleMessage(space, message) {
     const reply = stripMarkdown(agentResult.text);
     console.log(`[agent] user=${user.id} reply_len=${reply.length} attachments=${agentResult.attachments.length}`);
     await appendMessage(user.id, 'assistant', reply);
-    await sendReplyWithAttachments(message, reply, agentResult.attachments);
+    await sendReplyWithAttachments(space, message, reply, agentResult.attachments);
 }
-async function sendReplyWithAttachments(message, text, images) {
+function isIMessage(platform) {
+    return typeof platform === 'string' && platform === 'imessage';
+}
+async function sendReplyWithAttachments(space, message, text, images) {
     if (images.length === 0) {
         await message.reply(text);
         return;
+    }
+    if (images.length >= 2 && isIMessage(message.platform)) {
+        try {
+            const guid = await sendPhotoStack(space.id, images.map((img, i) => ({
+                buffer: img.buffer,
+                fileName: `flight-card-${i + 1}.png`,
+            })), { text });
+            console.log(`[reply] photo-stack sent space=${space.id} parts=${images.length} guid=${guid}`);
+            return;
+        }
+        catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[reply] photo-stack failed, falling back to separate bubbles: ${msg}`);
+        }
     }
     const builders = images.map((img, i) => attachment(img.buffer, {
         mimeType: img.contentType,
@@ -79,8 +96,7 @@ async function sendReplyWithAttachments(message, text, images) {
             await message.reply(first, text);
             return;
         }
-        const stack = group(first, second, ...rest);
-        await message.reply(stack, text);
+        await message.reply(first, second, ...rest, text);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
