@@ -61,7 +61,7 @@ export async function handleMessage(space, message) {
     await sendReplyWithAttachments(space, message, reply, agentResult.attachments);
 }
 function isIMessage(platform) {
-    return typeof platform === 'string' && platform === 'imessage';
+    return typeof platform === 'string' && platform.toLowerCase() === 'imessage';
 }
 async function sendReplyWithAttachments(space, message, text, images) {
     if (images.length === 0) {

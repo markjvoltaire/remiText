@@ -81,7 +81,7 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
 }
 
 function isIMessage(platform: unknown): boolean {
-  return typeof platform === 'string' && platform === 'imessage';
+  return typeof platform === 'string' && platform.toLowerCase() === 'imessage';
 }
 
 async function sendReplyWithAttachments(
