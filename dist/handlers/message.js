@@ -1,4 +1,4 @@
-import { attachment } from 'spectrum-ts';
+import { attachment, group } from 'spectrum-ts';
 import { claimMessage, getUserByPhone, getConversationHistory, appendMessage } from '../services/supabase.js';
 import { markRead } from '../services/imessage.js';
 import { runAgentLoop } from '../ai/claude.js';
@@ -69,16 +69,18 @@ async function sendReplyWithAttachments(message, text, images) {
         mimeType: img.contentType,
         name: images.length === 1 ? 'flight-card.png' : `flight-card-${i + 1}.png`,
     }));
-    const [first, ...rest] = builders;
+    const [first, second, ...rest] = builders;
     if (!first) {
         await message.reply(text);
         return;
     }
-    const tail = [...rest, text];
-    const second = tail[0];
-    const remaining = tail.slice(1);
     try {
-        await message.reply(first, second, ...remaining);
+        if (!second) {
+            await message.reply(first, text);
+            return;
+        }
+        const stack = group(first, second, ...rest);
+        await message.reply(stack, text);
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
