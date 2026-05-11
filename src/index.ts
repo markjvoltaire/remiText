@@ -1,8 +1,19 @@
 import "dotenv/config";
 import Anthropic from "@anthropic-ai/sdk";
+import { createClient } from "@supabase/supabase-js";
 import { Spectrum } from "spectrum-ts";
 import { imessage } from "spectrum-ts/providers";
 import type { AdvancedIMessage } from "@photon-ai/advanced-imessage";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+async function claimMessage(id: string): Promise<boolean> {
+  const { error } = await supabase.from("seen_messages").insert({ id });
+  return !error;
+}
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
@@ -38,17 +49,13 @@ async function main() {
 
   console.log("iMessage bot is running...");
 
-  const seen = new Set<string>();
-
   for await (const [space, message] of app.messages) {
     await space.responding(async () => {
       const text = message.content.type === "text" ? message.content.text : "";
       if (!text) return;
 
-      const id = (message as any).id ?? `${text}-${Date.now()}`;
-      if (seen.has(id)) return;
-      seen.add(id);
-      if (seen.size > 500) seen.clear();
+      const id = (message as any).id;
+      if (!id || !(await claimMessage(id))) return;
 
       const imessageClient = getImessageClient(app, (space as any).phone);
       await imessageClient?.chats.markRead(space.id).catch(() => {});
