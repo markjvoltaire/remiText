@@ -67,7 +67,7 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   const history = await getConversationHistory(user.id);
   await appendMessage(user.id, 'user', text);
 
-  const replyRaw = await runAgentLoop(text, history, user, message);
+  const replyRaw = await runAgentLoop(text, history, user);
   const reply = sanitizeOutgoingText(replyRaw);
 
   console.log(`[agent] user=${user.id} reply=${JSON.stringify(reply)}`);
