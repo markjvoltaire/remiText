@@ -61,7 +61,7 @@ export function FlightCard(data: FlightCardInput): ReactElement {
         backgroundColor: BG,
         color: TEXT,
         fontFamily: 'Inter',
-        padding: '64px 72px',
+        padding: '80px 72px',
         justifyContent: 'space-between',
       }}
     >
@@ -69,35 +69,35 @@ export function FlightCard(data: FlightCardInput): ReactElement {
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'center',
+          alignItems: 'flex-start',
         }}
       >
         <div
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 16,
+            gap: 20,
           }}
         >
           {data.logoUrl ? (
             <img
               src={data.logoUrl}
-              width={56}
-              height={56}
-              style={{ borderRadius: 12, objectFit: 'contain' }}
+              width={72}
+              height={72}
+              style={{ borderRadius: 16, objectFit: 'contain' }}
             />
           ) : (
             <div
               style={{
-                width: 56,
-                height: 56,
-                borderRadius: 12,
+                width: 72,
+                height: 72,
+                borderRadius: 16,
                 backgroundColor: SURFACE,
                 border: `1px solid ${BORDER}`,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                fontSize: 28,
+                fontSize: 36,
                 fontWeight: 700,
                 color: ACCENT,
               }}
@@ -107,7 +107,7 @@ export function FlightCard(data: FlightCardInput): ReactElement {
           )}
           <div
             style={{
-              fontSize: 38,
+              fontSize: 44,
               fontWeight: 700,
               letterSpacing: -0.5,
             }}
@@ -123,14 +123,14 @@ export function FlightCard(data: FlightCardInput): ReactElement {
             alignItems: 'flex-end',
           }}
         >
-          <div style={{ color: MUTED, fontSize: 22, fontWeight: 400 }}>Total</div>
+          <div style={{ color: MUTED, fontSize: 26, fontWeight: 400 }}>Total</div>
           <div
             style={{
               color: ACCENT,
-              fontSize: 56,
+              fontSize: 72,
               fontWeight: 700,
               lineHeight: 1,
-              marginTop: 6,
+              marginTop: 8,
             }}
           >
             {data.price}
@@ -141,54 +141,84 @@ export function FlightCard(data: FlightCardInput): ReactElement {
       <div
         style={{
           display: 'flex',
+          flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'center',
-          gap: 40,
+          gap: 48,
         }}
       >
         <div
           style={{
             display: 'flex',
-            flexDirection: 'column',
             alignItems: 'center',
+            justifyContent: 'center',
+            gap: 36,
           }}
         >
-          <div style={{ fontSize: 140, fontWeight: 700, lineHeight: 1, letterSpacing: -4 }}>
+          <div style={{ fontSize: 200, fontWeight: 700, lineHeight: 1, letterSpacing: -6 }}>
             {data.origin}
           </div>
-          <div style={{ color: MUTED, fontSize: 26, marginTop: 12 }}>
-            {data.departureTime}
-          </div>
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            color: MUTED,
-            paddingBottom: 36,
-          }}
-        >
-          <Arrow size={72} />
-          <div style={{ fontSize: 22, marginTop: 16, fontWeight: 700, color: TEXT }}>
-            {data.duration}
-          </div>
-          <div style={{ fontSize: 20, marginTop: 4 }}>{stops}</div>
-        </div>
-
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-          }}
-        >
-          <div style={{ fontSize: 140, fontWeight: 700, lineHeight: 1, letterSpacing: -4 }}>
+          <Arrow size={96} />
+          <div style={{ fontSize: 200, fontWeight: 700, lineHeight: 1, letterSpacing: -6 }}>
             {data.destination}
           </div>
-          <div style={{ color: MUTED, fontSize: 26, marginTop: 12 }}>
-            {data.arrivalTime}
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <div style={{ fontSize: 36, fontWeight: 700, color: TEXT, letterSpacing: -0.5 }}>
+            {data.duration}
+          </div>
+          <div style={{ fontSize: 28, color: MUTED }}>{stops}</div>
+        </div>
+
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 24,
+            marginTop: 8,
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              minWidth: 220,
+            }}
+          >
+            <div style={{ fontSize: 22, color: MUTED, letterSpacing: 2 }}>DEPART</div>
+            <div style={{ fontSize: 40, fontWeight: 700, marginTop: 6 }}>
+              {data.departureTime}
+            </div>
+          </div>
+          <div
+            style={{
+              width: 1,
+              height: 60,
+              backgroundColor: BORDER,
+            }}
+          />
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              minWidth: 220,
+            }}
+          >
+            <div style={{ fontSize: 22, color: MUTED, letterSpacing: 2 }}>ARRIVE</div>
+            <div style={{ fontSize: 40, fontWeight: 700, marginTop: 6 }}>
+              {data.arrivalTime}
+            </div>
           </div>
         </div>
       </div>
@@ -198,29 +228,29 @@ export function FlightCard(data: FlightCardInput): ReactElement {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          paddingTop: 28,
+          paddingTop: 32,
           borderTop: `1px solid ${BORDER}`,
         }}
       >
         <div
           style={{
             color: MUTED,
-            fontSize: 22,
+            fontSize: 26,
             display: 'flex',
             alignItems: 'center',
-            gap: 12,
+            gap: 14,
           }}
         >
           <span>{data.origin}</span>
-          <Arrow size={32} color={MUTED} />
+          <Arrow size={36} color={MUTED} />
           <span>{data.destination}</span>
         </div>
         <div
           style={{
             color: TEXT,
-            fontSize: 22,
+            fontSize: 26,
             fontWeight: 700,
-            letterSpacing: 2,
+            letterSpacing: 3,
             display: 'flex',
           }}
         >

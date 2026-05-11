@@ -13,8 +13,8 @@ export interface FlightCardImage {
   contentType: 'image/png';
 }
 
-const WIDTH = 1200;
-const HEIGHT = 630;
+const WIDTH = 1080;
+const HEIGHT = 1440;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

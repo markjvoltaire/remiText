@@ -28,78 +28,95 @@ export function FlightCard(data) {
             backgroundColor: BG,
             color: TEXT,
             fontFamily: 'Inter',
-            padding: '64px 72px',
+            padding: '80px 72px',
             justifyContent: 'space-between',
         }, children: [_jsxs("div", { style: {
                     display: 'flex',
                     justifyContent: 'space-between',
-                    alignItems: 'center',
+                    alignItems: 'flex-start',
                 }, children: [_jsxs("div", { style: {
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 16,
-                        }, children: [data.logoUrl ? (_jsx("img", { src: data.logoUrl, width: 56, height: 56, style: { borderRadius: 12, objectFit: 'contain' } })) : (_jsx("div", { style: {
-                                    width: 56,
-                                    height: 56,
-                                    borderRadius: 12,
+                            gap: 20,
+                        }, children: [data.logoUrl ? (_jsx("img", { src: data.logoUrl, width: 72, height: 72, style: { borderRadius: 16, objectFit: 'contain' } })) : (_jsx("div", { style: {
+                                    width: 72,
+                                    height: 72,
+                                    borderRadius: 16,
                                     backgroundColor: SURFACE,
                                     border: `1px solid ${BORDER}`,
                                     display: 'flex',
                                     alignItems: 'center',
                                     justifyContent: 'center',
-                                    fontSize: 28,
+                                    fontSize: 36,
                                     fontWeight: 700,
                                     color: ACCENT,
                                 }, children: data.airline.charAt(0).toUpperCase() })), _jsx("div", { style: {
-                                    fontSize: 38,
+                                    fontSize: 44,
                                     fontWeight: 700,
                                     letterSpacing: -0.5,
                                 }, children: data.airline })] }), _jsxs("div", { style: {
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'flex-end',
-                        }, children: [_jsx("div", { style: { color: MUTED, fontSize: 22, fontWeight: 400 }, children: "Total" }), _jsx("div", { style: {
+                        }, children: [_jsx("div", { style: { color: MUTED, fontSize: 26, fontWeight: 400 }, children: "Total" }), _jsx("div", { style: {
                                     color: ACCENT,
-                                    fontSize: 56,
+                                    fontSize: 72,
                                     fontWeight: 700,
                                     lineHeight: 1,
-                                    marginTop: 6,
+                                    marginTop: 8,
                                 }, children: data.price })] })] }), _jsxs("div", { style: {
                     display: 'flex',
+                    flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: 40,
+                    gap: 48,
                 }, children: [_jsxs("div", { style: {
                             display: 'flex',
-                            flexDirection: 'column',
                             alignItems: 'center',
-                        }, children: [_jsx("div", { style: { fontSize: 140, fontWeight: 700, lineHeight: 1, letterSpacing: -4 }, children: data.origin }), _jsx("div", { style: { color: MUTED, fontSize: 26, marginTop: 12 }, children: data.departureTime })] }), _jsxs("div", { style: {
+                            justifyContent: 'center',
+                            gap: 36,
+                        }, children: [_jsx("div", { style: { fontSize: 200, fontWeight: 700, lineHeight: 1, letterSpacing: -6 }, children: data.origin }), _jsx(Arrow, { size: 96 }), _jsx("div", { style: { fontSize: 200, fontWeight: 700, lineHeight: 1, letterSpacing: -6 }, children: data.destination })] }), _jsxs("div", { style: {
                             display: 'flex',
                             flexDirection: 'column',
                             alignItems: 'center',
-                            color: MUTED,
-                            paddingBottom: 36,
-                        }, children: [_jsx(Arrow, { size: 72 }), _jsx("div", { style: { fontSize: 22, marginTop: 16, fontWeight: 700, color: TEXT }, children: data.duration }), _jsx("div", { style: { fontSize: 20, marginTop: 4 }, children: stops })] }), _jsxs("div", { style: {
+                            gap: 10,
+                        }, children: [_jsx("div", { style: { fontSize: 36, fontWeight: 700, color: TEXT, letterSpacing: -0.5 }, children: data.duration }), _jsx("div", { style: { fontSize: 28, color: MUTED }, children: stops })] }), _jsxs("div", { style: {
                             display: 'flex',
-                            flexDirection: 'column',
                             alignItems: 'center',
-                        }, children: [_jsx("div", { style: { fontSize: 140, fontWeight: 700, lineHeight: 1, letterSpacing: -4 }, children: data.destination }), _jsx("div", { style: { color: MUTED, fontSize: 26, marginTop: 12 }, children: data.arrivalTime })] })] }), _jsxs("div", { style: {
+                            justifyContent: 'center',
+                            gap: 24,
+                            marginTop: 8,
+                        }, children: [_jsxs("div", { style: {
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    minWidth: 220,
+                                }, children: [_jsx("div", { style: { fontSize: 22, color: MUTED, letterSpacing: 2 }, children: "DEPART" }), _jsx("div", { style: { fontSize: 40, fontWeight: 700, marginTop: 6 }, children: data.departureTime })] }), _jsx("div", { style: {
+                                    width: 1,
+                                    height: 60,
+                                    backgroundColor: BORDER,
+                                } }), _jsxs("div", { style: {
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    minWidth: 220,
+                                }, children: [_jsx("div", { style: { fontSize: 22, color: MUTED, letterSpacing: 2 }, children: "ARRIVE" }), _jsx("div", { style: { fontSize: 40, fontWeight: 700, marginTop: 6 }, children: data.arrivalTime })] })] })] }), _jsxs("div", { style: {
                     display: 'flex',
                     justifyContent: 'space-between',
                     alignItems: 'center',
-                    paddingTop: 28,
+                    paddingTop: 32,
                     borderTop: `1px solid ${BORDER}`,
                 }, children: [_jsxs("div", { style: {
                             color: MUTED,
-                            fontSize: 22,
+                            fontSize: 26,
                             display: 'flex',
                             alignItems: 'center',
-                            gap: 12,
-                        }, children: [_jsx("span", { children: data.origin }), _jsx(Arrow, { size: 32, color: MUTED }), _jsx("span", { children: data.destination })] }), _jsx("div", { style: {
+                            gap: 14,
+                        }, children: [_jsx("span", { children: data.origin }), _jsx(Arrow, { size: 36, color: MUTED }), _jsx("span", { children: data.destination })] }), _jsx("div", { style: {
                             color: TEXT,
-                            fontSize: 22,
+                            fontSize: 26,
                             fontWeight: 700,
-                            letterSpacing: 2,
+                            letterSpacing: 3,
                             display: 'flex',
                         }, children: "REMI" })] })] }));
 }
