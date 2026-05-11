@@ -10,7 +10,7 @@ import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, } from '../images/satori/index.js';
-const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '3', 10) || 0));
+const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '5', 10) || 0));
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SYSTEM_PROMPT = `You are Remi, a friendly AI travel concierge that books flights via SMS. Be concise — every response is an SMS.
 

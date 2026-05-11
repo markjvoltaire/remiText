@@ -36,7 +36,7 @@ import type {
 
 const SEARCH_PREVIEW_CARD_LIMIT = Math.max(
   0,
-  Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '3', 10) || 0),
+  Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '5', 10) || 0),
 );
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
