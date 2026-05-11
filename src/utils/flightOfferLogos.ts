@@ -60,6 +60,9 @@ export async function sendFlightOfferLogos(message: Message, offers: FlightOffer
       const raw = Buffer.from(await res.arrayBuffer());
       const contentType = res.headers.get('content-type');
       const { data, ext, mimeType } = await rasterizeIfSvg(raw, contentType, url);
+      console.log(
+        `[flightLogos] offer=${offers[i].id} src=${url} ct=${contentType ?? 'n/a'} -> ext=${ext} mime=${mimeType} bytes=${data.length}`,
+      );
       const prefix = carrierFilePrefix(seg.flight_number, i);
       builders.push(
         attachment(data, {
