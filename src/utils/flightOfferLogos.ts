@@ -1,4 +1,4 @@
-import { attachment, group } from 'spectrum-ts';
+import { attachment } from 'spectrum-ts';
 import type { Message } from 'spectrum-ts';
 import type { FlightOffer } from '../types.js';
 
@@ -18,8 +18,9 @@ function carrierFilePrefix(flightNumber: string | undefined, index: number): str
 }
 
 /**
- * Sends airline logos for search results as one bundled message when the
- * platform supports `group` (e.g. iMessage photo album).
+ * Sends airline logos as separate image messages. Spectrum's iMessage provider
+ * does not support `group` (it logs "skipping"), so we use variadic `reply`,
+ * which sends one attachment per outbound message in order.
  */
 export async function sendFlightOfferLogos(message: Message, offers: FlightOffer[]): Promise<void> {
   const max = Math.min(offers.length, 5);
@@ -53,13 +54,7 @@ export async function sendFlightOfferLogos(message: Message, offers: FlightOffer
 
   if (builders.length === 0) return;
 
-  if (builders.length === 1) {
-    await message.reply(builders[0]!);
-    return;
+  for (const item of builders) {
+    await message.reply(item);
   }
-
-  const first = builders[0]!;
-  const second = builders[1]!;
-  const rest = builders.slice(2);
-  await message.reply(group(first, second, ...rest));
 }
