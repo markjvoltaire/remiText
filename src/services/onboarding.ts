@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import type { UserProfile } from '../types.js';
+import { normalizeContactKey } from '../utils/contactId.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -142,10 +143,12 @@ export async function advanceOnboarding(
     return { kind: 'prompt', message: 'Something went wrong—can you start again with your full name?' };
   }
 
+  const canonicalPhone = normalizeContactKey(latest.phone);
+
   const { data: inserted, error: insertError } = await supabase
     .from('users')
     .insert({
-      phone: latest.phone,
+      phone: canonicalPhone,
       name: latest.name,
       email: latest.email,
       date_of_birth: latest.date_of_birth,
@@ -159,7 +162,11 @@ export async function advanceOnboarding(
 
   // If user already exists, fetch and proceed
   if (insertError) {
-    const { data: existing } = await supabase.from('users').select('*').eq('phone', latest.phone).maybeSingle();
+    const { data: existing } = await supabase
+      .from('users')
+      .select('*')
+      .eq('phone', canonicalPhone)
+      .maybeSingle();
     if (!existing) throw insertError;
     await supabase.from('onboarding_sessions').delete().eq('phone', latest.phone);
     return { kind: 'completed', user: existing as UserProfile };

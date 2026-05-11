@@ -9,6 +9,7 @@ import { setLastFlightSearch, clearLastFlightSearch, setPendingOrder, clearPendi
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
+import { generateFlightCardImage, flightCardInputFromHeldOrder, } from '../images/satori/index.js';
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SYSTEM_PROMPT = `You are Remi, a friendly AI travel concierge that books flights via SMS. Be concise — every response is an SMS.
 
@@ -40,7 +41,23 @@ Output formatting:
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
 - Format prices as "$X" not "$X.XX" unless cents matter.
 - If a user's request is ambiguous (e.g. no origin city), ask one clarifying question.`;
-async function executeTool(toolName, input, user) {
+async function attachFlightCardSafely(ctx, order, formattedPrice, tag) {
+    try {
+        const input = flightCardInputFromHeldOrder(order, formattedPrice);
+        if (!input)
+            return;
+        const image = await generateFlightCardImage(input);
+        if (image) {
+            ctx.attachments.push(image);
+            console.log(`[flightCardImage] attached for ${tag}`);
+        }
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[flightCardImage] skipped for ${tag}: ${msg}`);
+    }
+}
+async function executeTool(toolName, input, user, ctx) {
     if (toolName === 'search_flights') {
         const { offers, rawOfferRequest } = await searchFlights({
             origin: input.origin,
@@ -155,6 +172,7 @@ async function executeTool(toolName, input, user) {
             },
         });
         await clearLastFlightSearch(user.id);
+        await attachFlightCardSafely(ctx, order, price, `hold:${order.booking_reference}`);
         return JSON.stringify({ order, formatted: confirmation });
     }
     if (toolName === 'book_flight') {
@@ -295,6 +313,8 @@ async function executeTool(toolName, input, user) {
         });
         await clearLastFlightSearch(user.id);
         await clearPendingOrder(user.id);
+        const formattedPrice = formatMoneyFromCents(amountInCents, currency);
+        await attachFlightCardSafely(ctx, order, formattedPrice, `book:${order.booking_reference}`);
         return JSON.stringify({
             success: true,
             booking_reference: order.booking_reference,
@@ -347,6 +367,7 @@ export async function runAgentLoop(userMessage, history, user) {
         ...history.map((m) => ({ role: m.role, content: m.content })),
         { role: 'user', content: userMessage },
     ];
+    const ctx = { attachments: [] };
     while (true) {
         const response = await anthropic.messages.create({
             model: 'claude-sonnet-4-6',
@@ -357,7 +378,7 @@ export async function runAgentLoop(userMessage, history, user) {
         });
         if (response.stop_reason === 'end_turn') {
             const textBlock = response.content.find((b) => b.type === 'text');
-            return textBlock?.text ?? '';
+            return { text: textBlock?.text ?? '', attachments: ctx.attachments };
         }
         if (response.stop_reason === 'tool_use') {
             const toolUseBlocks = response.content.filter((b) => b.type === 'tool_use');
@@ -365,7 +386,7 @@ export async function runAgentLoop(userMessage, history, user) {
             const toolResults = await Promise.all(toolUseBlocks.map(async (block) => {
                 try {
                     console.log(`[tool] ${block.name} input=${JSON.stringify(block.input)}`);
-                    const result = await executeTool(block.name, block.input, user);
+                    const result = await executeTool(block.name, block.input, user, ctx);
                     console.log(`[tool] ${block.name} ok`);
                     return { type: 'tool_result', tool_use_id: block.id, content: result };
                 }

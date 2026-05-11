@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "imessage": {
+      "source": "photon-hq/skills",
+      "sourceType": "github",
+      "skillPath": "skills/imessage/SKILL.md",
+      "computedHash": "e5d2e8c7b4a19dd252889d434175cddf6cd6244c213fba2258141ee6a78f547c"
+    }
+  }
+}

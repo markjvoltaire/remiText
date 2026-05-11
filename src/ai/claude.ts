@@ -21,7 +21,12 @@ import {
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
-import type { ConversationMessage, UserProfile } from '../types.js';
+import {
+  generateFlightCardImage,
+  flightCardInputFromHeldOrder,
+  type FlightCardImage,
+} from '../images/satori/index.js';
+import type { ConversationMessage, UserProfile, HeldOrder } from '../types.js';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -58,10 +63,40 @@ Output formatting:
 
 type ToolInput = Record<string, unknown>;
 
+export interface AgentLoopResult {
+  text: string;
+  attachments: FlightCardImage[];
+}
+
+interface AgentSessionContext {
+  attachments: FlightCardImage[];
+}
+
+async function attachFlightCardSafely(
+  ctx: AgentSessionContext,
+  order: HeldOrder,
+  formattedPrice: string,
+  tag: string,
+): Promise<void> {
+  try {
+    const input = flightCardInputFromHeldOrder(order, formattedPrice);
+    if (!input) return;
+    const image = await generateFlightCardImage(input);
+    if (image) {
+      ctx.attachments.push(image);
+      console.log(`[flightCardImage] attached for ${tag}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[flightCardImage] skipped for ${tag}: ${msg}`);
+  }
+}
+
 async function executeTool(
   toolName: string,
   input: ToolInput,
   user: UserProfile,
+  ctx: AgentSessionContext,
 ): Promise<string> {
   if (toolName === 'search_flights') {
     const { offers, rawOfferRequest } = await searchFlights({
@@ -186,6 +221,7 @@ async function executeTool(
       },
     });
     await clearLastFlightSearch(user.id);
+    await attachFlightCardSafely(ctx, order, price, `hold:${order.booking_reference}`);
     return JSON.stringify({ order, formatted: confirmation });
   }
 
@@ -340,6 +376,9 @@ async function executeTool(
     await clearLastFlightSearch(user.id);
     await clearPendingOrder(user.id);
 
+    const formattedPrice = formatMoneyFromCents(amountInCents, currency);
+    await attachFlightCardSafely(ctx, order, formattedPrice, `book:${order.booking_reference}`);
+
     return JSON.stringify({
       success: true,
       booking_reference: order.booking_reference,
@@ -395,7 +434,7 @@ export async function runAgentLoop(
   userMessage: string,
   history: ConversationMessage[],
   user: UserProfile,
-): Promise<string> {
+): Promise<AgentLoopResult> {
   const pending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
   const todayISO = new Date().toISOString().split('T')[0]!;
   const resolved = resolveRelativeDates(userMessage, todayISO);
@@ -409,6 +448,8 @@ export async function runAgentLoop(
     { role: 'user', content: userMessage },
   ];
 
+  const ctx: AgentSessionContext = { attachments: [] };
+
   while (true) {
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-6',
@@ -420,7 +461,7 @@ export async function runAgentLoop(
 
     if (response.stop_reason === 'end_turn') {
       const textBlock = response.content.find((b) => b.type === 'text');
-      return textBlock?.text ?? '';
+      return { text: textBlock?.text ?? '', attachments: ctx.attachments };
     }
 
     if (response.stop_reason === 'tool_use') {
@@ -432,7 +473,7 @@ export async function runAgentLoop(
         toolUseBlocks.map(async (block) => {
           try {
             console.log(`[tool] ${block.name} input=${JSON.stringify(block.input)}`);
-            const result = await executeTool(block.name, block.input as ToolInput, user);
+            const result = await executeTool(block.name, block.input as ToolInput, user, ctx);
             console.log(`[tool] ${block.name} ok`);
             return { type: 'tool_result' as const, tool_use_id: block.id, content: result };
           } catch (err) {

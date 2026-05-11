@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { normalizeContactKey } from '../utils/contactId.js';
 console.log('[supabase] connecting to', process.env.SUPABASE_URL);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 /** Fails fast if dedupe table is missing (avoids silent duplicate handling). */
@@ -19,14 +20,15 @@ export async function claimMessage(id) {
     return true; // don't drop messages on unexpected errors
 }
 export async function getUserByPhone(phone) {
-    const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('phone', phone)
-        .single();
-    if (error)
-        return null;
-    return data;
+    const trimmed = phone.trim();
+    const normalized = normalizeContactKey(trimmed);
+    const keys = [...new Set([normalized, trimmed].filter(Boolean))];
+    for (const key of keys) {
+        const { data, error } = await supabase.from('users').select('*').eq('phone', key).maybeSingle();
+        if (!error && data)
+            return data;
+    }
+    return null;
 }
 export async function getConversationHistory(userId) {
     const { data, error } = await supabase
