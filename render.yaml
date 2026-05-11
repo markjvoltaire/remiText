@@ -1,0 +1,33 @@
+services:
+  - type: worker
+    name: remiText
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: PROJECT_ID
+        sync: false
+      - key: PROJECT_SECRET
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: ANTHROPIC_HTTP_TIMEOUT_MS
+        sync: false
+      - key: MAX_AGENT_TOOL_ROUNDS
+        sync: false
+      - key: MESSAGE_HANDLER_TIMEOUT_MS
+        sync: false
+      - key: DUFFEL_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_ISSUING_CARD_SPENDING_LIMITS_CURRENCY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: REMI_PHONE
+        sync: false
