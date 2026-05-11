@@ -1,6 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
 console.log('[supabase] connecting to', process.env.SUPABASE_URL);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+/** Fails fast if dedupe table is missing (avoids silent duplicate handling). */
+export async function assertSeenMessagesTableReady() {
+    const { error } = await supabase.from('seen_messages').select('id').limit(1);
+    if (!error)
+        return;
+    throw new Error(`[supabase] Table seen_messages is missing or not exposed to the API (${error.message}). ` +
+        `Apply supabase/migrations/20250511000000_create_seen_messages.sql in the project that matches SUPABASE_URL.`);
+}
 export async function claimMessage(id) {
     const { error } = await supabase.from('seen_messages').insert({ id });
     if (!error)

@@ -8,6 +8,16 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
+/** Fails fast if dedupe table is missing (avoids silent duplicate handling). */
+export async function assertSeenMessagesTableReady(): Promise<void> {
+  const { error } = await supabase.from('seen_messages').select('id').limit(1);
+  if (!error) return;
+  throw new Error(
+    `[supabase] Table seen_messages is missing or not exposed to the API (${error.message}). ` +
+      `Apply supabase/migrations/20250511000000_create_seen_messages.sql in the project that matches SUPABASE_URL.`,
+  );
+}
+
 export async function claimMessage(id: string): Promise<boolean> {
   const { error } = await supabase.from('seen_messages').insert({ id });
   if (!error) return true;

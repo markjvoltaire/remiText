@@ -212,7 +212,7 @@ async function executeTool(toolName, input, user) {
         const amountInCents = Math.round(parseFloat(amountStr) * 100);
         let paymentIntentId;
         try {
-            paymentIntentId = await chargeViaSPT(user.stripe_spt_id, amountInCents, currency);
+            paymentIntentId = await chargeViaSPT(user.stripe_spt_id, amountInCents, currency, user.stripe_customer_id);
         }
         catch (err) {
             const message = err instanceof Error ? err.message : String(err);
@@ -323,7 +323,7 @@ async function executeTool(toolName, input, user) {
             });
         }
         const amountInCents = Math.round(parseFloat(amountStr) * 100);
-        await chargeViaSPT(user.stripe_spt_id, amountInCents, currency);
+        await chargeViaSPT(user.stripe_spt_id, amountInCents, currency, user.stripe_customer_id);
         await payForOrderWithBalance(orderId, amountStr, currency.toUpperCase());
         await clearLastFlightSearch(user.id);
         await clearPendingOrder(user.id);

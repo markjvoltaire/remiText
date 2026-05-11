@@ -4,6 +4,7 @@ import { Spectrum } from 'spectrum-ts';
 import { imessage } from 'spectrum-ts/providers/imessage';
 import { terminal } from 'spectrum-ts/providers/terminal';
 import { handleMessage } from './handlers/message.js';
+import { assertSeenMessagesTableReady } from './services/supabase.js';
 
 const PROVIDER = (process.env.SPECTRUM_PROVIDER ?? 'imessage').toLowerCase();
 
@@ -26,6 +27,8 @@ const app = await Spectrum({
     PROVIDER === 'terminal' ? terminal.config() : imessage.config(),
   ],
 });
+
+await assertSeenMessagesTableReady();
 
 console.log(`Remi is online. provider=${PROVIDER}`);
 
