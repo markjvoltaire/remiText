@@ -9,7 +9,8 @@ import { setLastFlightSearch, clearLastFlightSearch, setPendingOrder, clearPendi
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
-import { generateFlightCardImage, flightCardInputFromHeldOrder, } from '../images/satori/index.js';
+import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, } from '../images/satori/index.js';
+const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '3', 10) || 0));
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SYSTEM_PROMPT = `You are Remi, a friendly AI travel concierge that books flights via SMS. Be concise — every response is an SMS.
 
@@ -57,6 +58,43 @@ async function attachFlightCardSafely(ctx, order, formattedPrice, tag) {
         console.warn(`[flightCardImage] skipped for ${tag}: ${msg}`);
     }
 }
+async function attachSearchPreviewCardsSafely(ctx, offers, tag) {
+    if (SEARCH_PREVIEW_CARD_LIMIT === 0 || offers.length === 0)
+        return;
+    try {
+        const top = [...offers]
+            .map((offer) => {
+            const allIn = computeAllInPrice(offer.total_amount, offer.total_currency);
+            return {
+                offer,
+                chargeCents: allIn.chargeAmountCents,
+                price: formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency),
+            };
+        })
+            .sort((a, b) => a.chargeCents - b.chargeCents)
+            .slice(0, SEARCH_PREVIEW_CARD_LIMIT);
+        const images = await Promise.all(top.map(async ({ offer, price }) => {
+            const input = flightCardInputFromOffer(offer, price);
+            if (!input)
+                return null;
+            return generateFlightCardImage(input);
+        }));
+        let attached = 0;
+        for (const img of images) {
+            if (img) {
+                ctx.attachments.push(img);
+                attached += 1;
+            }
+        }
+        if (attached > 0) {
+            console.log(`[flightCardImage] attached ${attached} preview(s) for ${tag}`);
+        }
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[flightCardImage] preview skipped for ${tag}: ${msg}`);
+    }
+}
 async function executeTool(toolName, input, user, ctx) {
     if (toolName === 'search_flights') {
         const { offers, rawOfferRequest } = await searchFlights({
@@ -78,6 +116,7 @@ async function executeTool(toolName, input, user, ctx) {
             },
             duffel_raw_offer_request: rawOfferRequest,
         });
+        await attachSearchPreviewCardsSafely(ctx, offers, `search:${input.origin}-${input.destination}`);
         return JSON.stringify({ formatted: offersToSMS(offers), offers });
     }
     if (toolName === 'hold_flight') {

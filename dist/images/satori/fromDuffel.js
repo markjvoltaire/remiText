@@ -53,3 +53,28 @@ export function flightCardInputFromHeldOrder(order, formattedPrice) {
         stops: Math.max(0, segments.length - 1),
     };
 }
+/**
+ * Build a `FlightCardInput` from a search-result `FlightOffer`. The outbound
+ * slice is used as the canonical leg, which matches how `offersToSMS` renders
+ * the option list (one line per offer keyed off slice[0]).
+ */
+export function flightCardInputFromOffer(offer, formattedPrice) {
+    const slice = offer.slices[0];
+    if (!slice)
+        return null;
+    const segments = slice.segments;
+    if (segments.length === 0)
+        return null;
+    const first = segments[0];
+    const last = segments[segments.length - 1];
+    return {
+        airline: first.marketing_carrier_name,
+        origin: slice.origin || first.origin.iata_code,
+        destination: slice.destination || last.destination.iata_code,
+        departureTime: formatHHMM(first.departing_at),
+        arrivalTime: formatHHMM(last.arriving_at),
+        price: formattedPrice,
+        duration: durationBetween(first.departing_at, last.arriving_at),
+        stops: Math.max(0, segments.length - 1),
+    };
+}

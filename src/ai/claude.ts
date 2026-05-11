@@ -24,9 +24,20 @@ import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import {
   generateFlightCardImage,
   flightCardInputFromHeldOrder,
+  flightCardInputFromOffer,
   type FlightCardImage,
 } from '../images/satori/index.js';
-import type { ConversationMessage, UserProfile, HeldOrder } from '../types.js';
+import type {
+  ConversationMessage,
+  UserProfile,
+  HeldOrder,
+  FlightOffer,
+} from '../types.js';
+
+const SEARCH_PREVIEW_CARD_LIMIT = Math.max(
+  0,
+  Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '3', 10) || 0),
+);
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -92,6 +103,50 @@ async function attachFlightCardSafely(
   }
 }
 
+async function attachSearchPreviewCardsSafely(
+  ctx: AgentSessionContext,
+  offers: FlightOffer[],
+  tag: string,
+): Promise<void> {
+  if (SEARCH_PREVIEW_CARD_LIMIT === 0 || offers.length === 0) return;
+
+  try {
+    const top = [...offers]
+      .map((offer) => {
+        const allIn = computeAllInPrice(offer.total_amount, offer.total_currency);
+        return {
+          offer,
+          chargeCents: allIn.chargeAmountCents,
+          price: formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency),
+        };
+      })
+      .sort((a, b) => a.chargeCents - b.chargeCents)
+      .slice(0, SEARCH_PREVIEW_CARD_LIMIT);
+
+    const images = await Promise.all(
+      top.map(async ({ offer, price }) => {
+        const input = flightCardInputFromOffer(offer, price);
+        if (!input) return null;
+        return generateFlightCardImage(input);
+      }),
+    );
+
+    let attached = 0;
+    for (const img of images) {
+      if (img) {
+        ctx.attachments.push(img);
+        attached += 1;
+      }
+    }
+    if (attached > 0) {
+      console.log(`[flightCardImage] attached ${attached} preview(s) for ${tag}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[flightCardImage] preview skipped for ${tag}: ${msg}`);
+  }
+}
+
 async function executeTool(
   toolName: string,
   input: ToolInput,
@@ -118,6 +173,11 @@ async function executeTool(
       },
       duffel_raw_offer_request: rawOfferRequest,
     });
+    await attachSearchPreviewCardsSafely(
+      ctx,
+      offers,
+      `search:${input.origin}-${input.destination}`,
+    );
     return JSON.stringify({ formatted: offersToSMS(offers), offers });
   }
 
