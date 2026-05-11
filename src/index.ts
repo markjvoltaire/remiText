@@ -12,7 +12,10 @@ const supabase = createClient(
 
 async function claimMessage(id: string): Promise<boolean> {
   const { error } = await supabase.from("seen_messages").insert({ id });
-  return !error;
+  if (!error) return true;
+  if (error.code === "23505") return false; // duplicate key — already claimed
+  console.error("Supabase claim error, processing anyway:", error.message);
+  return true; // don't drop messages on unexpected errors
 }
 
 const anthropic = new Anthropic({
@@ -35,9 +38,13 @@ async function getReply(userMessage: string): Promise<string> {
 function getImessageClient(app: any, spacePhone: string): AdvancedIMessage | undefined {
   const runtime = app.__internal?.platforms?.get("iMessage");
   const client = runtime?.client;
-  if (!client || !Array.isArray(client)) return undefined;
-  return (client as Array<{ client: AdvancedIMessage; phone: string }>)
-    .find((c) => c.phone === spacePhone)?.client;
+  if (!client) return undefined;
+  if (Array.isArray(client)) {
+    return (client as Array<{ client: AdvancedIMessage; phone: string }>)
+      .find((c) => c.phone === spacePhone)?.client;
+  }
+  console.log("iMessage client type:", typeof client, Object.keys(client));
+  return undefined;
 }
 
 async function main() {
