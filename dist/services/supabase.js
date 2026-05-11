@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+console.log('[supabase] connecting to', process.env.SUPABASE_URL);
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 export async function claimMessage(id) {
     const { error } = await supabase.from('seen_messages').insert({ id });
