@@ -4,6 +4,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "dev:terminal": "tsx src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
