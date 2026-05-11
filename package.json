@@ -15,11 +15,15 @@
   "description": "",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",
+    "@duffel/api": "^4.25.0",
     "@supabase/supabase-js": "^2.105.4",
     "dotenv": "^17.4.2",
-    "spectrum-ts": "^1.5.0"
+    "express": "^5.2.1",
+    "spectrum-ts": "^1.5.0",
+    "stripe": "^22.1.1"
   },
   "devDependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^25.6.2",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
