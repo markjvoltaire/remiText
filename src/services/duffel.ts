@@ -97,6 +97,8 @@ export async function searchFlights(params: SearchParams): Promise<SearchFlights
         arriving_at: seg.arriving_at,
         marketing_carrier_name: seg.marketing_carrier.name,
         flight_number: `${seg.marketing_carrier.iata_code}${seg.marketing_carrier_flight_number}`,
+        logo_symbol_url:
+          (seg.marketing_carrier as { logo_symbol_url?: string | null }).logo_symbol_url ?? undefined,
         origin: { iata_code: seg.origin.iata_code ?? '' },
         destination: { iata_code: seg.destination.iata_code ?? '' },
       })),
@@ -211,6 +213,8 @@ function buildHeldOrder(
         arriving_at: seg.arriving_at,
         marketing_carrier_name: seg.marketing_carrier.name,
         flight_number: `${seg.marketing_carrier.iata_code}${seg.marketing_carrier_flight_number}`,
+        logo_symbol_url:
+          (seg.marketing_carrier as { logo_symbol_url?: string | null }).logo_symbol_url ?? undefined,
         origin: { iata_code: seg.origin.iata_code ?? '' },
         destination: { iata_code: seg.destination.iata_code ?? '' },
       })),

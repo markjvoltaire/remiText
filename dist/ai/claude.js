@@ -9,6 +9,7 @@ import { setLastFlightSearch, clearLastFlightSearch, setPendingOrder, clearPendi
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
+import { sendFlightOfferLogos } from '../utils/flightOfferLogos.js';
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SYSTEM_PROMPT = `You are Remi, a friendly AI travel concierge that books flights via SMS. Be concise — every response is an SMS.
 
@@ -35,12 +36,24 @@ Tool routing:
 - For book_flight / hold_flight, always use an offer_id from the "offers" array in the latest search (or the pending options list in context). Never invent flights, prices, or flight numbers.
 
 Output formatting:
+- Airline logos for the current options may arrive in a separate message immediately before your text; still include the full text list so prices and times are visible.
 - When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it. Append one follow-up line: "Which one?" or "Want me to book one?"
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
 - Format prices as "$X" not "$X.XX" unless cents matter.
 - If a user's request is ambiguous (e.g. no origin city), ask one clarifying question.`;
-async function executeTool(toolName, input, user) {
+async function maybeSendSearchLogos(message, offers) {
+    if (!message || offers.length === 0)
+        return;
+    try {
+        await sendFlightOfferLogos(message, offers);
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[flightLogos] send failed: ${msg}`);
+    }
+}
+async function executeTool(toolName, input, user, ctx) {
     if (toolName === 'search_flights') {
         const { offers, rawOfferRequest } = await searchFlights({
             origin: input.origin,
@@ -61,6 +74,7 @@ async function executeTool(toolName, input, user) {
             },
             duffel_raw_offer_request: rawOfferRequest,
         });
+        await maybeSendSearchLogos(ctx?.message, offers);
         return JSON.stringify({ formatted: offersToSMS(offers), offers });
     }
     if (toolName === 'hold_flight') {
@@ -113,6 +127,7 @@ async function executeTool(toolName, input, user) {
                     search_params: params,
                     duffel_raw_offer_request: rawOfferRequest,
                 });
+                await maybeSendSearchLogos(ctx?.message, offers);
                 return JSON.stringify({
                     error: true,
                     stale_offer: true,
@@ -196,6 +211,7 @@ async function executeTool(toolName, input, user) {
                     search_params: params,
                     duffel_raw_offer_request: rawOfferRequest,
                 });
+                await maybeSendSearchLogos(ctx?.message, offers);
                 return JSON.stringify({
                     success: false,
                     stale_offer: true,
@@ -267,6 +283,7 @@ async function executeTool(toolName, input, user) {
                     search_params: params,
                     duffel_raw_offer_request: rawOfferRequest,
                 });
+                await maybeSendSearchLogos(ctx?.message, offers);
                 return JSON.stringify({
                     success: false,
                     stale_offer: true,
@@ -335,7 +352,7 @@ async function executeTool(toolName, input, user) {
     }
     throw new Error(`Unknown tool: ${toolName}`);
 }
-export async function runAgentLoop(userMessage, history, user) {
+export async function runAgentLoop(userMessage, history, user, message) {
     const pending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
     const todayISO = new Date().toISOString().split('T')[0];
     const resolved = resolveRelativeDates(userMessage, todayISO);
@@ -365,7 +382,7 @@ export async function runAgentLoop(userMessage, history, user) {
             const toolResults = await Promise.all(toolUseBlocks.map(async (block) => {
                 try {
                     console.log(`[tool] ${block.name} input=${JSON.stringify(block.input)}`);
-                    const result = await executeTool(block.name, block.input, user);
+                    const result = await executeTool(block.name, block.input, user, { message });
                     console.log(`[tool] ${block.name} ok`);
                     return { type: 'tool_result', tool_use_id: block.id, content: result };
                 }

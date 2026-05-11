@@ -71,6 +71,8 @@ export interface FlightSegment {
   arriving_at: string;
   marketing_carrier_name: string;
   flight_number: string;
+  /** Duffel CDN URL for airline mark (often SVG). */
+  logo_symbol_url?: string;
   origin: { iata_code: string };
   destination: { iata_code: string };
 }
