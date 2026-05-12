@@ -34,12 +34,28 @@ import type {
   FlightOffer,
 } from '../types.js';
 
-const SEARCH_PREVIEW_CARD_LIMIT = Math.max(
-  0,
-  Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '5', 10) || 0),
-);
+/** How many top offers get a PNG flight card after search_flights (0 disables). */
+function parseSearchPreviewCardLimit(): number {
+  const raw = process.env.REMI_SEARCH_PREVIEW_CARDS;
+  if (raw === undefined || String(raw).trim() === '') {
+    return 5;
+  }
+  const n = Number.parseInt(String(raw).trim(), 10);
+  if (!Number.isFinite(n)) {
+    return 5;
+  }
+  return Math.max(0, Math.min(5, n));
+}
+
+const SEARCH_PREVIEW_CARD_LIMIT = parseSearchPreviewCardLimit();
 
 const OFFERS_LIST_LIMIT = SEARCH_PREVIEW_CARD_LIMIT > 0 ? SEARCH_PREVIEW_CARD_LIMIT : 3;
+
+if (SEARCH_PREVIEW_CARD_LIMIT === 0) {
+  console.warn(
+    '[flightCardImage] REMI_SEARCH_PREVIEW_CARDS is 0 — no PNG previews after search_flights',
+  );
+}
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -98,6 +114,10 @@ async function attachFlightCardSafely(
     if (image) {
       ctx.attachments.push(image);
       console.log(`[flightCardImage] attached for ${tag}`);
+    } else {
+      console.warn(
+        `[flightCardImage] not attached for ${tag}: PNG was null (see [flightCardImage] generation failed log above)`,
+      );
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -142,6 +162,10 @@ async function attachSearchPreviewCardsSafely(
     }
     if (attached > 0) {
       console.log(`[flightCardImage] attached ${attached} preview(s) for ${tag}`);
+    } else if (top.length > 0) {
+      console.warn(
+        `[flightCardImage] preview: 0/${top.length} PNGs for ${tag} (fonts missing? see assets/fonts or REMI_SEARCH_PREVIEW_CARDS)`,
+      );
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

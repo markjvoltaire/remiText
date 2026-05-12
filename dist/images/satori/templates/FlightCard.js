@@ -77,11 +77,18 @@ export function FlightCard(data) {
                                             fontWeight: 700,
                                             color: LOGO_FALLBACK_TEXT,
                                         }, children: initial })) }), _jsxs("div", { style: { display: 'flex', flexDirection: 'column', gap: 6 }, children: [_jsx("div", { style: {
+                                                display: 'flex',
                                                 fontSize: 34,
                                                 fontWeight: 700,
                                                 letterSpacing: -0.4,
                                                 lineHeight: 1.2,
-                                            }, children: data.airline }), data.aircraft ? (_jsx("div", { style: { fontSize: 24, fontWeight: 400, color: MUTED, lineHeight: 1.3 }, children: data.aircraft })) : null] })] }), _jsxs("div", { style: {
+                                            }, children: data.airline }), data.aircraft ? (_jsx("div", { style: {
+                                                display: 'flex',
+                                                fontSize: 24,
+                                                fontWeight: 400,
+                                                color: MUTED,
+                                                lineHeight: 1.3,
+                                            }, children: data.aircraft })) : null] })] }), _jsxs("div", { style: {
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 10,
@@ -98,13 +105,19 @@ export function FlightCard(data) {
                         marginBottom: 8,
                         paddingLeft: 8,
                         paddingRight: 8,
-                    }, children: [_jsxs("div", { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', flex: 1 }, children: [_jsx("div", { style: { fontSize: 76, fontWeight: 700, letterSpacing: -2, lineHeight: 1 }, children: data.departureTime }), _jsxs("div", { style: {
+                    }, children: [_jsxs("div", { style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-start', flex: 1 }, children: [_jsx("div", { style: {
+                                        display: 'flex',
+                                        fontSize: 76,
+                                        fontWeight: 700,
+                                        letterSpacing: -2,
+                                        lineHeight: 1,
+                                    }, children: data.departureTime }), _jsxs("div", { style: {
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: 12,
                                         marginTop: 16,
                                         fontSize: 26,
-                                        fontWeight: 500,
+                                        fontWeight: 400,
                                         color: PRIMARY,
                                     }, children: [_jsx(DepartDotIcon, {}), _jsx("span", { children: originLine })] })] }), _jsx("div", { style: {
                                 display: 'flex',
@@ -118,15 +131,22 @@ export function FlightCard(data) {
                                 flexDirection: 'column',
                                 alignItems: 'flex-end',
                                 flex: 1,
-                            }, children: [_jsx("div", { style: { fontSize: 76, fontWeight: 700, letterSpacing: -2, lineHeight: 1 }, children: data.arrivalTime }), _jsxs("div", { style: {
+                            }, children: [_jsx("div", { style: {
+                                        display: 'flex',
+                                        fontSize: 76,
+                                        fontWeight: 700,
+                                        letterSpacing: -2,
+                                        lineHeight: 1,
+                                    }, children: data.arrivalTime }), _jsxs("div", { style: {
                                         display: 'flex',
                                         alignItems: 'center',
                                         gap: 12,
                                         marginTop: 16,
                                         fontSize: 26,
-                                        fontWeight: 500,
+                                        fontWeight: 400,
                                         color: PRIMARY,
                                     }, children: [_jsx(ArriveDotIcon, {}), _jsx("span", { children: destLine })] })] })] }), _jsx("div", { style: {
+                        display: 'block',
                         marginTop: 44,
                         marginBottom: 36,
                         borderTopWidth: 2,
@@ -144,11 +164,20 @@ export function FlightCard(data) {
                                 fontSize: 24,
                                 fontWeight: 400,
                             }, children: [_jsx(CalendarIcon, { size: 24 }), _jsx("span", { children: data.tripSummary })] }), _jsxs("div", { style: { display: 'flex', alignItems: 'center', gap: 16 }, children: [showDiscount ? (_jsxs("div", { style: {
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
                                         backgroundColor: DISCOUNT_BG,
                                         color: DISCOUNT_TEXT,
                                         fontSize: 22,
                                         fontWeight: 700,
                                         padding: '8px 18px',
                                         borderRadius: 999,
-                                    }, children: ["-", data.discountPercent, "%"] })) : null, _jsx("div", { style: { fontSize: 44, fontWeight: 700, color: PRIMARY, letterSpacing: -0.5 }, children: data.price })] })] })] }) }));
+                                    }, children: ["-", data.discountPercent, "%"] })) : null, _jsx("div", { style: {
+                                        display: 'flex',
+                                        fontSize: 44,
+                                        fontWeight: 700,
+                                        color: PRIMARY,
+                                        letterSpacing: -0.5,
+                                    }, children: data.price })] })] })] }) }));
 }
