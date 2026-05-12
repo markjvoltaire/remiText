@@ -89,17 +89,23 @@ export function formatFlightConfirmationSMS(details) {
         'or BOOK to purchase now',
     ].join('\n');
 }
-export function offersToSMS(offers) {
+export function offersToSMS(offers, limit) {
     if (offers.length === 0)
         return 'No flights found for that route and date.';
-    const first = offers[0];
+    const sortedOffers = [...offers].sort((a, b) => {
+        const pa = computeAllInPrice(a.total_amount, a.total_currency).chargeAmountCents;
+        const pb = computeAllInPrice(b.total_amount, b.total_currency).chargeAmountCents;
+        return pa - pb;
+    });
+    const trimmed = typeof limit === 'number' && limit > 0 ? sortedOffers.slice(0, limit) : sortedOffers;
+    const first = trimmed[0];
     const route = {
         from: first.slices[0].origin,
         to: first.slices[0].destination,
         date: first.slices[0].departure_date,
         return_date: first.slices[1]?.departure_date,
     };
-    const flights = offers.map((o) => {
+    const flights = trimmed.map((o) => {
         const outSeg = o.slices[0].segments[0];
         const retSeg = o.slices[1]?.segments[0];
         const allIn = computeAllInPrice(o.total_amount, o.total_currency);

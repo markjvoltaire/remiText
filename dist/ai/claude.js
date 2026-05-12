@@ -11,6 +11,7 @@ import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, } from '../images/satori/index.js';
 const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '5', 10) || 0));
+const OFFERS_LIST_LIMIT = SEARCH_PREVIEW_CARD_LIMIT > 0 ? SEARCH_PREVIEW_CARD_LIMIT : 3;
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SYSTEM_PROMPT = `You are Remi, a friendly AI travel concierge that books flights via SMS. Be concise — every response is an SMS.
 
@@ -19,7 +20,7 @@ Today's date is ${new Date().toISOString().split('T')[0]}.
 Rules:
 - Keep replies short. Max 3 sentences unless listing flight options.
 - Plain text only: no Markdown, no asterisks (*), no bold/italics markers, no backticks.
-- When presenting flight options, list at most 3, with price, airline, and departure time.
+- When presenting flight options, list every option returned in the "formatted" field (do not drop any), with price, airline, and departure time.
 - Always resolve relative dates (e.g. "Friday", "next week") using today's date before calling search_flights.
 - Decide whether the user wants a one-way or round-trip flight. If round-trip, collect both departure_date and return_date before calling search_flights.
 - If pending flight options are listed in context below, use them: when the user picks an airline or says first/second/third, pick the matching offer_id. Do not ask for dates again if they already gave them or if those options already reflect the trip.
@@ -117,7 +118,7 @@ async function executeTool(toolName, input, user, ctx) {
             duffel_raw_offer_request: rawOfferRequest,
         });
         await attachSearchPreviewCardsSafely(ctx, offers, `search:${input.origin}-${input.destination}`);
-        return JSON.stringify({ formatted: offersToSMS(offers), offers });
+        return JSON.stringify({ formatted: offersToSMS(offers, OFFERS_LIST_LIMIT), offers });
     }
     if (toolName === 'hold_flight') {
         const offerId = input.offer_id;
@@ -172,7 +173,7 @@ async function executeTool(toolName, input, user, ctx) {
                 return JSON.stringify({
                     error: true,
                     stale_offer: true,
-                    formatted: offersToSMS(offers),
+                    formatted: offersToSMS(offers, OFFERS_LIST_LIMIT),
                     offers,
                     message: `Offer expired (${formatDuffelError(err)}). Fresh results are in "formatted". Ask the user to pick again from this list only; then call hold_flight with the new offer_id.`,
                 });
@@ -256,7 +257,7 @@ async function executeTool(toolName, input, user, ctx) {
                 return JSON.stringify({
                     success: false,
                     stale_offer: true,
-                    formatted: offersToSMS(offers),
+                    formatted: offersToSMS(offers, OFFERS_LIST_LIMIT),
                     offers,
                     message: `That offer expired before I could book it (${dErr}). Here are fresh options — pick one and I'll book.`,
                 });
@@ -327,7 +328,7 @@ async function executeTool(toolName, input, user, ctx) {
                 return JSON.stringify({
                     success: false,
                     stale_offer: true,
-                    formatted: offersToSMS(offers),
+                    formatted: offersToSMS(offers, OFFERS_LIST_LIMIT),
                     offers,
                     message: `That offer expired before I could book it (${dErr}). I refunded the charge. Here are fresh options — pick one and I'll book.`,
                 });

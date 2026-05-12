@@ -54,7 +54,11 @@ function cacheKey(data: FlightCardInput): string {
     arrivalTime: data.arrivalTime,
     price: data.price,
     duration: data.duration,
-    stops: data.stops ?? 0,
+    tripSummary: data.tripSummary,
+    originCity: data.originCity ?? '',
+    destinationCity: data.destinationCity ?? '',
+    aircraft: data.aircraft ?? '',
+    discountPercent: data.discountPercent ?? null,
   };
   return createHash('sha1').update(JSON.stringify(normalized)).digest('hex');
 }

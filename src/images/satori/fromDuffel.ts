@@ -1,16 +1,18 @@
 import type { FlightOffer, HeldOrder } from '../../types.js';
 import type { FlightCardInput } from './templates/FlightCard.js';
 
-function formatHHMM(iso: string | undefined): string {
+function formatHHMM24(iso: string | undefined): string {
   if (!iso) return '';
-  const time = iso.split('T')[1]?.slice(0, 5);
-  if (!time) return '';
-  const [hStr, m] = time.split(':');
-  const hour = Number.parseInt(hStr ?? '0', 10);
-  if (Number.isNaN(hour)) return time;
-  const suffix = hour < 12 ? 'AM' : 'PM';
-  const h12 = hour % 12 || 12;
-  return `${h12}:${m} ${suffix}`;
+  return iso.split('T')[1]?.slice(0, 5) ?? '';
+}
+
+function formatShortMonthDay(dateStr: string): string {
+  const date = new Date(`${dateStr}T12:00:00Z`);
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 function durationBetween(start?: string, end?: string): string {
@@ -23,6 +25,56 @@ function durationBetween(start?: string, end?: string): string {
   if (hours === 0) return `${minutes}m`;
   if (minutes === 0) return `${hours}h`;
   return `${hours}h ${minutes}m`;
+}
+
+function stopsLabel(segmentCount: number): string {
+  const stops = Math.max(0, segmentCount - 1);
+  if (stops <= 0) return 'Nonstop';
+  if (stops === 1) return '1 stop';
+  return `${stops} stops`;
+}
+
+function segmentMeta(
+  slice: { departure_date: string; origin: string; destination: string },
+  segments: {
+    departing_at: string;
+    arriving_at: string;
+    marketing_carrier_name: string;
+    origin: { iata_code: string; city_name?: string };
+    destination: { iata_code: string; city_name?: string };
+    aircraft_name?: string | null;
+  }[],
+): Pick<
+  FlightCardInput,
+  | 'airline'
+  | 'origin'
+  | 'destination'
+  | 'departureTime'
+  | 'arrivalTime'
+  | 'duration'
+  | 'tripSummary'
+  | 'originCity'
+  | 'destinationCity'
+  | 'aircraft'
+> {
+  const first = segments[0]!;
+  const last = segments[segments.length - 1]!;
+  const originCity = first.origin.city_name?.trim() || undefined;
+  const destinationCity = last.destination.city_name?.trim() || undefined;
+  const aircraft = first.aircraft_name?.trim() || undefined;
+
+  return {
+    airline: first.marketing_carrier_name,
+    origin: slice.origin || first.origin.iata_code,
+    destination: slice.destination || last.destination.iata_code,
+    departureTime: formatHHMM24(first.departing_at),
+    arrivalTime: formatHHMM24(last.arriving_at),
+    duration: durationBetween(first.departing_at, last.arriving_at),
+    tripSummary: `${formatShortMonthDay(slice.departure_date)} - ${stopsLabel(segments.length)}`,
+    originCity,
+    destinationCity,
+    aircraft,
+  };
 }
 
 /**
@@ -40,18 +92,9 @@ export function flightCardInputFromHeldOrder(
   const segments = slice.segments;
   if (segments.length === 0) return null;
 
-  const first = segments[0]!;
-  const last = segments[segments.length - 1]!;
-
   return {
-    airline: first.marketing_carrier_name,
-    origin: slice.origin || first.origin.iata_code,
-    destination: slice.destination || last.destination.iata_code,
-    departureTime: formatHHMM(first.departing_at),
-    arrivalTime: formatHHMM(last.arriving_at),
+    ...segmentMeta(slice, segments),
     price: formattedPrice,
-    duration: durationBetween(first.departing_at, last.arriving_at),
-    stops: Math.max(0, segments.length - 1),
   };
 }
 
@@ -69,17 +112,8 @@ export function flightCardInputFromOffer(
   const segments = slice.segments;
   if (segments.length === 0) return null;
 
-  const first = segments[0]!;
-  const last = segments[segments.length - 1]!;
-
   return {
-    airline: first.marketing_carrier_name,
-    origin: slice.origin || first.origin.iata_code,
-    destination: slice.destination || last.destination.iata_code,
-    departureTime: formatHHMM(first.departing_at),
-    arrivalTime: formatHHMM(last.arriving_at),
+    ...segmentMeta(slice, segments),
     price: formattedPrice,
-    duration: durationBetween(first.departing_at, last.arriving_at),
-    stops: Math.max(0, segments.length - 1),
   };
 }
