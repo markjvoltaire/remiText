@@ -1,15 +1,16 @@
-function formatHHMM24(iso) {
+function formatHHMM(iso) {
     if (!iso)
         return '';
-    return iso.split('T')[1]?.slice(0, 5) ?? '';
-}
-function formatShortMonthDay(dateStr) {
-    const date = new Date(`${dateStr}T12:00:00Z`);
-    return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        timeZone: 'UTC',
-    });
+    const time = iso.split('T')[1]?.slice(0, 5);
+    if (!time)
+        return '';
+    const [hStr, m] = time.split(':');
+    const hour = Number.parseInt(hStr ?? '0', 10);
+    if (Number.isNaN(hour))
+        return time;
+    const suffix = hour < 12 ? 'AM' : 'PM';
+    const h12 = hour % 12 || 12;
+    return `${h12}:${m} ${suffix}`;
 }
 function durationBetween(start, end) {
     if (!start || !end)
@@ -26,33 +27,6 @@ function durationBetween(start, end) {
         return `${hours}h`;
     return `${hours}h ${minutes}m`;
 }
-function stopsLabel(segmentCount) {
-    const stops = Math.max(0, segmentCount - 1);
-    if (stops <= 0)
-        return 'Nonstop';
-    if (stops === 1)
-        return '1 stop';
-    return `${stops} stops`;
-}
-function segmentMeta(slice, segments) {
-    const first = segments[0];
-    const last = segments[segments.length - 1];
-    const originCity = first.origin.city_name?.trim() || undefined;
-    const destinationCity = last.destination.city_name?.trim() || undefined;
-    const aircraft = first.aircraft_name?.trim() || undefined;
-    return {
-        airline: first.marketing_carrier_name,
-        origin: slice.origin || first.origin.iata_code,
-        destination: slice.destination || last.destination.iata_code,
-        departureTime: formatHHMM24(first.departing_at),
-        arrivalTime: formatHHMM24(last.arriving_at),
-        duration: durationBetween(first.departing_at, last.arriving_at),
-        tripSummary: `${formatShortMonthDay(slice.departure_date)} - ${stopsLabel(segments.length)}`,
-        originCity,
-        destinationCity,
-        aircraft,
-    };
-}
 /**
  * Build a `FlightCardInput` from a Duffel-derived `HeldOrder`, using the
  * outbound slice as the canonical "trip" the card represents. Pricing must
@@ -66,9 +40,17 @@ export function flightCardInputFromHeldOrder(order, formattedPrice) {
     const segments = slice.segments;
     if (segments.length === 0)
         return null;
+    const first = segments[0];
+    const last = segments[segments.length - 1];
     return {
-        ...segmentMeta(slice, segments),
+        airline: first.marketing_carrier_name,
+        origin: slice.origin || first.origin.iata_code,
+        destination: slice.destination || last.destination.iata_code,
+        departureTime: formatHHMM(first.departing_at),
+        arrivalTime: formatHHMM(last.arriving_at),
         price: formattedPrice,
+        duration: durationBetween(first.departing_at, last.arriving_at),
+        stops: Math.max(0, segments.length - 1),
     };
 }
 /**
@@ -83,8 +65,16 @@ export function flightCardInputFromOffer(offer, formattedPrice) {
     const segments = slice.segments;
     if (segments.length === 0)
         return null;
+    const first = segments[0];
+    const last = segments[segments.length - 1];
     return {
-        ...segmentMeta(slice, segments),
+        airline: first.marketing_carrier_name,
+        origin: slice.origin || first.origin.iata_code,
+        destination: slice.destination || last.destination.iata_code,
+        departureTime: formatHHMM(first.departing_at),
+        arrivalTime: formatHHMM(last.arriving_at),
         price: formattedPrice,
+        duration: durationBetween(first.departing_at, last.arriving_at),
+        stops: Math.max(0, segments.length - 1),
     };
 }

@@ -71,10 +71,8 @@ export interface FlightSegment {
   arriving_at: string;
   marketing_carrier_name: string;
   flight_number: string;
-  origin: { iata_code: string; city_name?: string };
-  destination: { iata_code: string; city_name?: string };
-  /** First segment only — marketing name, e.g. "Airbus A350-900" */
-  aircraft_name?: string | null;
+  origin: { iata_code: string };
+  destination: { iata_code: string };
 }
 
 export interface HeldOrder {

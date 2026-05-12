@@ -97,15 +97,8 @@ export async function searchFlights(params: SearchParams): Promise<SearchFlights
         arriving_at: seg.arriving_at,
         marketing_carrier_name: seg.marketing_carrier.name,
         flight_number: `${seg.marketing_carrier.iata_code}${seg.marketing_carrier_flight_number}`,
-        origin: {
-          iata_code: seg.origin.iata_code ?? '',
-          city_name: seg.origin.city_name ?? undefined,
-        },
-        destination: {
-          iata_code: seg.destination.iata_code ?? '',
-          city_name: seg.destination.city_name ?? undefined,
-        },
-        aircraft_name: seg.aircraft?.name ?? null,
+        origin: { iata_code: seg.origin.iata_code ?? '' },
+        destination: { iata_code: seg.destination.iata_code ?? '' },
       })),
     })),
   }));
@@ -218,15 +211,8 @@ function buildHeldOrder(
         arriving_at: seg.arriving_at,
         marketing_carrier_name: seg.marketing_carrier.name,
         flight_number: `${seg.marketing_carrier.iata_code}${seg.marketing_carrier_flight_number}`,
-        origin: {
-          iata_code: seg.origin.iata_code ?? '',
-          city_name: seg.origin.city_name ?? undefined,
-        },
-        destination: {
-          iata_code: seg.destination.iata_code ?? '',
-          city_name: seg.destination.city_name ?? undefined,
-        },
-        aircraft_name: seg.aircraft?.name ?? null,
+        origin: { iata_code: seg.origin.iata_code ?? '' },
+        destination: { iata_code: seg.destination.iata_code ?? '' },
       })),
     })),
   };

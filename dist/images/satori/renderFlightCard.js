@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,20 +9,9 @@ const WIDTH = 1080;
 const HEIGHT = 1440;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const FONT_DIR = path.resolve(__dirname, '../../../assets/fonts');
 const REGULAR_FONT_FILE = process.env.REMI_FONT_REGULAR ?? 'Inter-Regular.woff';
 const BOLD_FONT_FILE = process.env.REMI_FONT_BOLD ?? 'Inter-Bold.woff';
-function resolveFontDir() {
-    const nextToBundle = path.resolve(__dirname, '../../../assets/fonts');
-    const underCwd = path.resolve(process.cwd(), 'assets', 'fonts');
-    if (existsSync(path.join(nextToBundle, REGULAR_FONT_FILE))) {
-        return nextToBundle;
-    }
-    if (existsSync(path.join(underCwd, REGULAR_FONT_FILE))) {
-        return underCwd;
-    }
-    return nextToBundle;
-}
-const FONT_DIR = resolveFontDir();
 let fontPromise = null;
 async function loadFonts() {
     if (!fontPromise) {
@@ -52,11 +40,7 @@ function cacheKey(data) {
         arrivalTime: data.arrivalTime,
         price: data.price,
         duration: data.duration,
-        tripSummary: data.tripSummary,
-        originCity: data.originCity ?? '',
-        destinationCity: data.destinationCity ?? '',
-        aircraft: data.aircraft ?? '',
-        discountPercent: data.discountPercent ?? null,
+        stops: data.stops ?? 0,
     };
     return createHash('sha1').update(JSON.stringify(normalized)).digest('hex');
 }
@@ -113,7 +97,7 @@ export async function generateFlightCardImage(data) {
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        console.warn(`[flightCardImage] generation failed dir=${FONT_DIR}: ${message}`);
+        console.warn(`[flightCardImage] generation failed: ${message}`);
         return null;
     }
 }
