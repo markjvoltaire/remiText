@@ -1,17 +1,17 @@
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import satori from 'satori';
-import { Resvg } from '@resvg/resvg-js';
-import { FlightCard } from './templates/FlightCard.js';
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import satori from "satori";
+import { Resvg } from "@resvg/resvg-js";
+import { FlightCard } from "./templates/FlightCard.js";
 const WIDTH = 1080;
 const HEIGHT = 1440;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const FONT_DIR = path.resolve(__dirname, '../../../assets/fonts');
-const REGULAR_FONT_FILE = process.env.REMI_FONT_REGULAR ?? 'Inter-Regular.woff';
-const BOLD_FONT_FILE = process.env.REMI_FONT_BOLD ?? 'Inter-Bold.woff';
+const FONT_DIR = path.resolve(__dirname, "../../../assets/fonts");
+const REGULAR_FONT_FILE = process.env.REMI_FONT_REGULAR ?? "Inter-Regular.woff";
+const BOLD_FONT_FILE = process.env.REMI_FONT_BOLD ?? "Inter-Bold.woff";
 let fontPromise = null;
 async function loadFonts() {
     if (!fontPromise) {
@@ -33,7 +33,7 @@ const cache = new Map();
 function cacheKey(data) {
     const normalized = {
         airline: data.airline,
-        logoUrl: data.logoUrl ?? '',
+        logoUrl: data.logoUrl ?? "",
         origin: data.origin,
         destination: data.destination,
         departureTime: data.departureTime,
@@ -41,8 +41,14 @@ function cacheKey(data) {
         price: data.price,
         duration: data.duration,
         stops: data.stops ?? 0,
+        date: data.date ?? "",
+        cabinClass: data.cabinClass ?? "",
+        gate: data.gate ?? "",
+        terminal: data.terminal ?? "",
+        flightNumber: data.flightNumber ?? "",
+        optionLabel: data.optionLabel ?? "",
     };
-    return createHash('sha1').update(JSON.stringify(normalized)).digest('hex');
+    return createHash("sha1").update(JSON.stringify(normalized)).digest("hex");
 }
 function rememberInCache(key, value) {
     if (cache.has(key)) {
@@ -61,12 +67,12 @@ async function renderToPng(data) {
         width: WIDTH,
         height: HEIGHT,
         fonts: [
-            { name: 'Inter', data: regular, weight: 400, style: 'normal' },
-            { name: 'Inter', data: bold, weight: 700, style: 'normal' },
+            { name: "Inter", data: regular, weight: 400, style: "normal" },
+            { name: "Inter", data: bold, weight: 700, style: "normal" },
         ],
     });
     const resvg = new Resvg(svg, {
-        fitTo: { mode: 'width', value: WIDTH },
+        fitTo: { mode: "width", value: WIDTH },
     });
     return Buffer.from(resvg.render().asPng());
 }
@@ -91,7 +97,7 @@ export async function generateFlightCardImage(data) {
     }
     try {
         const buffer = await renderToPng(data);
-        const result = { buffer, contentType: 'image/png' };
+        const result = { buffer, contentType: "image/png" };
         rememberInCache(key, result);
         return result;
     }

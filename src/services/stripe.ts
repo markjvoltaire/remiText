@@ -1,6 +1,12 @@
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY?.trim() ?? '';
+const stripe = new Stripe(stripeSecretKey);
+
+export function isStripeConfigurationError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /invalid api key|no api key provided|api key expired/i.test(message);
+}
 
 export async function chargeViaSPT(
   sptId: string,

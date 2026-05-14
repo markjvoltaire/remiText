@@ -1,8 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { tools } from './tools.js';
 import { searchFlights, holdOrder, bookOrderInstant, getOfferPricing, payForOrderWithBalance, OfferRequiresInstantPaymentError, } from '../services/duffel.js';
-import { chargeViaSPT, refundPaymentIntent } from '../services/stripe.js';
-import { offersToSMS, formatHeldOrderConfirmationSMS } from '../utils/formatFlights.js';
+import { chargeViaSPT, refundPaymentIntent, isStripeConfigurationError } from '../services/stripe.js';
+import { offersToSMS, formatHeldOrderConfirmationSMS, sortFlightOffersByPrice, } from '../utils/formatFlights.js';
 import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
 import { computeAllInPrice, formatMoneyFromCents } from '../utils/pricing.js';
 import { setLastFlightSearch, clearLastFlightSearch, setPendingOrder, clearPendingOrder, } from '../services/supabase.js';
@@ -11,19 +11,32 @@ import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, } from '../images/satori/index.js';
 const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '5', 10) || 0));
-const OFFERS_LIST_LIMIT = SEARCH_PREVIEW_CARD_LIMIT > 0 ? SEARCH_PREVIEW_CARD_LIMIT : 3;
+/** Cheapest first; when preview cards are enabled, same length as image count. */
+function surfacedSearchOffers(offers) {
+    const sorted = sortFlightOffersByPrice(offers);
+    if (SEARCH_PREVIEW_CARD_LIMIT <= 0)
+        return sorted;
+    return sorted.slice(0, SEARCH_PREVIEW_CARD_LIMIT);
+}
+function paymentFailureMessage(err) {
+    if (isStripeConfigurationError(err)) {
+        return "I can't process payment right now because Remi's Stripe connection is misconfigured. Try again after I fix it.";
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    return `I couldn't process your payment (${message}). Please update your card and try again.`;
+}
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const SYSTEM_PROMPT = `You are Remi, a friendly AI travel concierge that books flights via SMS. Be concise — every response is an SMS.
 
 Today's date is ${new Date().toISOString().split('T')[0]}.
 
 Rules:
-- Keep replies short. Max 3 sentences unless listing flight options.
+- Keep replies short. Max 3 sentences unless you are pasting a multi-option flight list from tool output.
 - Plain text only: no Markdown, no asterisks (*), no bold/italics markers, no backticks.
-- When presenting flight options, list every option returned in the "formatted" field (do not drop any), with price, airline, and departure time.
+- When search_flights returns a formatted option list, every line block in that list matches one preview image (same count, cheapest-first order). Never shorten or drop options from that list.
 - Always resolve relative dates (e.g. "Friday", "next week") using today's date before calling search_flights.
 - Decide whether the user wants a one-way or round-trip flight. If round-trip, collect both departure_date and return_date before calling search_flights.
-- If pending flight options are listed in context below, use them: when the user picks an airline or says first/second/third, pick the matching offer_id. Do not ask for dates again if they already gave them or if those options already reflect the trip.
+- If pending flight options are listed in context below, use them: when the user picks an airline or says first/second/third/fourth/fifth (by position), pick the matching offer_id. Do not ask for dates again if they already gave them or if those options already reflect the trip.
 - Before taking action on a specific flight, restate the exact flight (airline, time, price) and ask ONE question: "HOLD or BOOK?"
 
 Intent recognition (only after you have just asked "HOLD or BOOK?" on a specific flight):
@@ -38,7 +51,7 @@ Tool routing:
 - For book_flight / hold_flight, always use an offer_id from the "offers" array in the latest search (or the pending options list in context). Never invent flights, prices, or flight numbers.
 
 Output formatting:
-- When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it. Append one follow-up line: "Which one?" or "Want me to book one?"
+- When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat, paraphrase, or omit options (count must match the number of image cards). Append one follow-up line: "Which one?" or "Want me to book one?"
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
 - Format prices as "$X" not "$X.XX" unless cents matter.
@@ -48,7 +61,10 @@ async function attachFlightCardSafely(ctx, order, formattedPrice, tag) {
         const input = flightCardInputFromHeldOrder(order, formattedPrice);
         if (!input)
             return;
-        const image = await generateFlightCardImage(input);
+        const image = await generateFlightCardImage({
+            ...input,
+            optionLabel: 'Confirm flight',
+        });
         if (image) {
             ctx.attachments.push(image);
             console.log(`[flightCardImage] attached for ${tag}`);
@@ -63,22 +79,16 @@ async function attachSearchPreviewCardsSafely(ctx, offers, tag) {
     if (SEARCH_PREVIEW_CARD_LIMIT === 0 || offers.length === 0)
         return;
     try {
-        const top = [...offers]
-            .map((offer) => {
+        const images = await Promise.all(offers.map(async (offer, index) => {
             const allIn = computeAllInPrice(offer.total_amount, offer.total_currency);
-            return {
-                offer,
-                chargeCents: allIn.chargeAmountCents,
-                price: formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency),
-            };
-        })
-            .sort((a, b) => a.chargeCents - b.chargeCents)
-            .slice(0, SEARCH_PREVIEW_CARD_LIMIT);
-        const images = await Promise.all(top.map(async ({ offer, price }) => {
+            const price = formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency);
             const input = flightCardInputFromOffer(offer, price);
             if (!input)
                 return null;
-            return generateFlightCardImage(input);
+            return generateFlightCardImage({
+                ...input,
+                optionLabel: `Option ${index + 1}`,
+            });
         }));
         let attached = 0;
         for (const img of images) {
@@ -106,8 +116,9 @@ async function executeTool(toolName, input, user, ctx) {
             cabin_class: input.cabin_class,
             adult_count: input.adult_count,
         });
+        const surfaced = surfacedSearchOffers(offers);
         await setLastFlightSearch(user.id, {
-            offers: summarizeOffersForContext(offers),
+            offers: summarizeOffersForContext(surfaced),
             updated_at: new Date().toISOString(),
             search_params: {
                 origin: input.origin,
@@ -117,8 +128,8 @@ async function executeTool(toolName, input, user, ctx) {
             },
             duffel_raw_offer_request: rawOfferRequest,
         });
-        await attachSearchPreviewCardsSafely(ctx, offers, `search:${input.origin}-${input.destination}`);
-        return JSON.stringify({ formatted: offersToSMS(offers, OFFERS_LIST_LIMIT), offers });
+        await attachSearchPreviewCardsSafely(ctx, surfaced, `search:${input.origin}-${input.destination}`);
+        return JSON.stringify({ formatted: offersToSMS(surfaced), offers: surfaced });
     }
     if (toolName === 'hold_flight') {
         const offerId = input.offer_id;
@@ -173,7 +184,7 @@ async function executeTool(toolName, input, user, ctx) {
                 return JSON.stringify({
                     error: true,
                     stale_offer: true,
-                    formatted: offersToSMS(offers, OFFERS_LIST_LIMIT),
+                    formatted: offersToSMS(offers),
                     offers,
                     message: `Offer expired (${formatDuffelError(err)}). Fresh results are in "formatted". Ask the user to pick again from this list only; then call hold_flight with the new offer_id.`,
                 });
@@ -257,7 +268,7 @@ async function executeTool(toolName, input, user, ctx) {
                 return JSON.stringify({
                     success: false,
                     stale_offer: true,
-                    formatted: offersToSMS(offers, OFFERS_LIST_LIMIT),
+                    formatted: offersToSMS(offers),
                     offers,
                     message: `That offer expired before I could book it (${dErr}). Here are fresh options — pick one and I'll book.`,
                 });
@@ -280,7 +291,7 @@ async function executeTool(toolName, input, user, ctx) {
             console.error('[book_flight] stripe charge failed:', message);
             return JSON.stringify({
                 success: false,
-                message: `I couldn't process your payment (${message}). Please update your card and try again.`,
+                message: paymentFailureMessage(err),
             });
         }
         let bookResult;
@@ -328,7 +339,7 @@ async function executeTool(toolName, input, user, ctx) {
                 return JSON.stringify({
                     success: false,
                     stale_offer: true,
-                    formatted: offersToSMS(offers, OFFERS_LIST_LIMIT),
+                    formatted: offersToSMS(offers),
                     offers,
                     message: `That offer expired before I could book it (${dErr}). I refunded the charge. Here are fresh options — pick one and I'll book.`,
                 });
@@ -387,7 +398,17 @@ async function executeTool(toolName, input, user, ctx) {
         }
         const allIn = computeAllInPrice(amountStr, currency);
         const amountInCents = allIn.chargeAmountCents;
-        await chargeViaSPT(user.stripe_spt_id, amountInCents, currency, user.stripe_customer_id);
+        try {
+            await chargeViaSPT(user.stripe_spt_id, amountInCents, currency, user.stripe_customer_id);
+        }
+        catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error('[confirm_booking] stripe charge failed:', message);
+            return JSON.stringify({
+                success: false,
+                message: paymentFailureMessage(err),
+            });
+        }
         await payForOrderWithBalance(orderId, amountStr, currency.toUpperCase());
         await clearLastFlightSearch(user.id);
         await clearPendingOrder(user.id);

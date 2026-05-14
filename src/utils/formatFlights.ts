@@ -141,14 +141,19 @@ export function formatFlightConfirmationSMS(details: FlightConfirmation): string
   ].join('\n');
 }
 
-export function offersToSMS(offers: FlightOffer[], limit?: number): string {
-  if (offers.length === 0) return 'No flights found for that route and date.';
-
-  const sortedOffers = [...offers].sort((a, b) => {
+/** Cheapest first (all-in charge cents). */
+export function sortFlightOffersByPrice(offers: FlightOffer[]): FlightOffer[] {
+  return [...offers].sort((a, b) => {
     const pa = computeAllInPrice(a.total_amount, a.total_currency).chargeAmountCents;
     const pb = computeAllInPrice(b.total_amount, b.total_currency).chargeAmountCents;
     return pa - pb;
   });
+}
+
+export function offersToSMS(offers: FlightOffer[], limit?: number): string {
+  if (offers.length === 0) return 'No flights found for that route and date.';
+
+  const sortedOffers = sortFlightOffersByPrice(offers);
 
   const trimmed =
     typeof limit === 'number' && limit > 0 ? sortedOffers.slice(0, limit) : sortedOffers;

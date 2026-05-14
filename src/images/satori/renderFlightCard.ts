@@ -1,16 +1,16 @@
-import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import satori from 'satori';
-import { Resvg } from '@resvg/resvg-js';
-import { FlightCard, type FlightCardInput } from './templates/FlightCard.js';
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import satori from "satori";
+import { Resvg } from "@resvg/resvg-js";
+import { FlightCard, type FlightCardInput } from "./templates/FlightCard.js";
 
 export type { FlightCardInput };
 
 export interface FlightCardImage {
   buffer: Buffer;
-  contentType: 'image/png';
+  contentType: "image/png";
 }
 
 const WIDTH = 1080;
@@ -19,9 +19,9 @@ const HEIGHT = 1440;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const FONT_DIR = path.resolve(__dirname, '../../../assets/fonts');
-const REGULAR_FONT_FILE = process.env.REMI_FONT_REGULAR ?? 'Inter-Regular.woff';
-const BOLD_FONT_FILE = process.env.REMI_FONT_BOLD ?? 'Inter-Bold.woff';
+const FONT_DIR = path.resolve(__dirname, "../../../assets/fonts");
+const REGULAR_FONT_FILE = process.env.REMI_FONT_REGULAR ?? "Inter-Regular.woff";
+const BOLD_FONT_FILE = process.env.REMI_FONT_BOLD ?? "Inter-Bold.woff";
 
 let fontPromise: Promise<{ regular: Buffer; bold: Buffer }> | null = null;
 
@@ -47,7 +47,7 @@ const cache = new Map<string, FlightCardImage>();
 function cacheKey(data: FlightCardInput): string {
   const normalized = {
     airline: data.airline,
-    logoUrl: data.logoUrl ?? '',
+    logoUrl: data.logoUrl ?? "",
     origin: data.origin,
     destination: data.destination,
     departureTime: data.departureTime,
@@ -55,8 +55,14 @@ function cacheKey(data: FlightCardInput): string {
     price: data.price,
     duration: data.duration,
     stops: data.stops ?? 0,
+    date: data.date ?? "",
+    cabinClass: data.cabinClass ?? "",
+    gate: data.gate ?? "",
+    terminal: data.terminal ?? "",
+    flightNumber: data.flightNumber ?? "",
+    optionLabel: data.optionLabel ?? "",
   };
-  return createHash('sha1').update(JSON.stringify(normalized)).digest('hex');
+  return createHash("sha1").update(JSON.stringify(normalized)).digest("hex");
 }
 
 function rememberInCache(key: string, value: FlightCardImage): void {
@@ -75,12 +81,12 @@ async function renderToPng(data: FlightCardInput): Promise<Buffer> {
     width: WIDTH,
     height: HEIGHT,
     fonts: [
-      { name: 'Inter', data: regular, weight: 400, style: 'normal' },
-      { name: 'Inter', data: bold, weight: 700, style: 'normal' },
+      { name: "Inter", data: regular, weight: 400, style: "normal" },
+      { name: "Inter", data: bold, weight: 700, style: "normal" },
     ],
   });
   const resvg = new Resvg(svg, {
-    fitTo: { mode: 'width', value: WIDTH },
+    fitTo: { mode: "width", value: WIDTH },
   });
   return Buffer.from(resvg.render().asPng());
 }
@@ -109,7 +115,7 @@ export async function generateFlightCardImage(
 
   try {
     const buffer = await renderToPng(data);
-    const result: FlightCardImage = { buffer, contentType: 'image/png' };
+    const result: FlightCardImage = { buffer, contentType: "image/png" };
     rememberInCache(key, result);
     return result;
   } catch (err) {

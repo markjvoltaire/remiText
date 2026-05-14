@@ -38,7 +38,7 @@ export function formatLastSearchForPrompt(ctx: LastFlightSearchContext | null | 
   return [
     'Latest search — pending options (use these exact offer_id values for hold_flight):',
     ...lines,
-    'If the user names an airline, flight number, or says first/second/third, pick the matching row.',
+    'If the user names an airline, flight number, or refers to an option by position in the list (first, second, third, etc.), pick the matching row.',
     'Do not ask for departure or return dates again if the user already gave them or if the options above already reflect those dates.',
   ].join('\n');
 }

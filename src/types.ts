@@ -70,6 +70,7 @@ export interface FlightSegment {
   departing_at: string;
   arriving_at: string;
   marketing_carrier_name: string;
+  marketing_carrier_logo_lockup_url?: string;
   flight_number: string;
   origin: { iata_code: string };
   destination: { iata_code: string };
