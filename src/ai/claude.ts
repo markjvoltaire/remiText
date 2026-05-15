@@ -1,4 +1,10 @@
-import Anthropic from '@anthropic-ai/sdk';
+import Anthropic, {
+  APIError,
+  APIConnectionError,
+  APIConnectionTimeoutError,
+  InternalServerError,
+  RateLimitError,
+} from '@anthropic-ai/sdk';
 import { tools } from './tools.js';
 import {
   searchFlights,
@@ -22,13 +28,21 @@ import {
   setPendingOrder,
   clearPendingOrder,
 } from '../services/supabase.js';
+import {
+  searchPoshHaitianFlagDayEvents,
+  formatPoshRowsForSms,
+  formatPoshNoResults,
+  type PoshEventRow,
+} from '../services/poshExplore.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import {
   generateFlightCardImage,
+  generatePoshEventCardImage,
   flightCardInputFromHeldOrder,
   flightCardInputFromOffer,
+  poshEventCardInputFromRow,
   type FlightCardImage,
 } from '../images/satori/index.js';
 import type {
@@ -61,6 +75,76 @@ function paymentFailureMessage(err: unknown): string {
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+const ANTHROPIC_MESSAGE_MAX_ATTEMPTS = Math.max(
+  1,
+  Math.min(12, Number.parseInt(process.env.REMI_ANTHROPIC_MAX_ATTEMPTS ?? '8', 10) || 8),
+);
+
+function delayMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** When Error.message is like `529 {"type":"error",...}` (SDK shape) but instanceof checks fail across bundles. */
+function errorMessageLooksRetryable(message: string): boolean {
+  const m = message.trim();
+  if (/^529\b/.test(m)) return true;
+  if (/overloaded_error/i.test(m)) return true;
+  if (/^503\b|^502\b|^504\b|^500\b/.test(m)) return true;
+  if (/^429\b/.test(m)) return true;
+  return false;
+}
+
+function isRetryableAnthropicError(err: unknown): boolean {
+  if (err instanceof RateLimitError) return true;
+  if (err instanceof InternalServerError) return true;
+  if (err instanceof APIConnectionTimeoutError) return true;
+  if (err instanceof APIConnectionError) return true;
+  if (err instanceof APIError) {
+    if (err.type === 'overloaded_error') return true;
+    const s = err.status;
+    if (s === 429) return true;
+    if (typeof s === 'number' && s >= 500 && s < 600) return true;
+  }
+  if (err instanceof Error && errorMessageLooksRetryable(err.message)) return true;
+  return false;
+}
+
+/** After all retries failed, or for logging — should we tell the user to try again soon? */
+export function isAnthropicCapacityError(err: unknown): boolean {
+  return isRetryableAnthropicError(err);
+}
+
+async function createMessageWithRetries(
+  params: Anthropic.MessageCreateParamsNonStreaming,
+): Promise<Anthropic.Message> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= ANTHROPIC_MESSAGE_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await anthropic.messages.create(params);
+    } catch (err) {
+      lastErr = err;
+      const retry = attempt < ANTHROPIC_MESSAGE_MAX_ATTEMPTS && isRetryableAnthropicError(err);
+      const detail =
+        err instanceof APIError
+          ? `status=${err.status} type=${err.type ?? '?'}`
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      if (!retry) {
+        throw err;
+      }
+      const backoff = Math.min(60_000, 2_000 * 2 ** (attempt - 1));
+      const jitter = Math.floor(Math.random() * 500);
+      const wait = backoff + jitter;
+      console.warn(
+        `[anthropic] messages.create failed (${detail}), retry ${attempt}/${ANTHROPIC_MESSAGE_MAX_ATTEMPTS} in ${wait}ms`,
+      );
+      await delayMs(wait);
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
 const SYSTEM_PROMPT = `You are Remi, a friendly AI travel concierge that books flights via SMS. Be concise — every response is an SMS.
 
 Today's date is ${new Date().toISOString().split('T')[0]}.
@@ -84,8 +168,10 @@ Tool routing:
 - BOOK intent → book_flight (charges the user and creates the order in one step; works for any carrier, including Frontier and other instant-payment airlines).
 - HOLD intent → hold_flight. If hold_flight returns { error: true, instant_only: true }, tell the user this airline requires instant payment and ask if they want to BOOK now; on BOOK affirmative call book_flight.
 - For book_flight / hold_flight, always use an offer_id from the "offers" array in the latest search (or the pending options list in context). Never invent flights, prices, or flight numbers.
+- Local Posh parties (Haitian Flag Day, posh.vip/explore, Haiti nightlife) → search_posh_events. Do not use search_flights for that.
 
 Output formatting:
+- When search_posh_events returns a "formatted" field, every numbered block matches one preview image card (same count, chronological order). Use the "formatted" field verbatim as the body of your reply, then add one short closing line.
 - When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat, paraphrase, or omit options (count must match the number of image cards). Append one follow-up line: "Which one?" or "Want me to book one?"
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
@@ -160,6 +246,38 @@ async function attachSearchPreviewCardsSafely(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[flightCardImage] preview skipped for ${tag}: ${msg}`);
+  }
+}
+
+async function attachPoshPreviewCardsSafely(
+  ctx: AgentSessionContext,
+  rows: PoshEventRow[],
+  tag: string,
+): Promise<void> {
+  if (SEARCH_PREVIEW_CARD_LIMIT <= 0 || rows.length === 0) return;
+
+  try {
+    const limited = rows.slice(0, SEARCH_PREVIEW_CARD_LIMIT);
+    const images = await Promise.all(
+      limited.map(async (row, index) => {
+        const input = poshEventCardInputFromRow(row, index);
+        return generatePoshEventCardImage(input);
+      }),
+    );
+
+    let attached = 0;
+    for (const img of images) {
+      if (img) {
+        ctx.attachments.push(img);
+        attached += 1;
+      }
+    }
+    if (attached > 0) {
+      console.log(`[poshCardImage] attached ${attached} preview(s) for ${tag}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[poshCardImage] preview skipped for ${tag}: ${msg}`);
   }
 }
 
@@ -463,6 +581,37 @@ async function executeTool(
     });
   }
 
+  if (toolName === 'search_posh_events') {
+    const theme = typeof input.theme === 'string' ? input.theme.trim() : '';
+    const discovery = await searchPoshHaitianFlagDayEvents({
+      theme: theme || undefined,
+    });
+
+    if (discovery.rows.length === 0) {
+      return JSON.stringify({
+        formatted: formatPoshNoResults(discovery.theme, discovery.window, discovery.exploreUrl),
+      });
+    }
+
+    const surfaced =
+      SEARCH_PREVIEW_CARD_LIMIT <= 0
+        ? discovery.rows
+        : discovery.rows.slice(0, SEARCH_PREVIEW_CARD_LIMIT);
+
+    const meta = {
+      exploreUrl: discovery.exploreUrl,
+      window: discovery.window,
+    };
+
+    let formatted = formatPoshRowsForSms(surfaced, meta);
+    if (SEARCH_PREVIEW_CARD_LIMIT > 0 && discovery.rows.length > surfaced.length) {
+      formatted += `\n\n+ ${discovery.rows.length - surfaced.length} more on ${discovery.exploreUrl}`;
+    }
+
+    await attachPoshPreviewCardsSafely(ctx, surfaced, 'search_posh_events');
+    return JSON.stringify({ formatted });
+  }
+
   if (toolName === 'confirm_booking') {
     if (!user.stripe_spt_id) {
       return JSON.stringify({
@@ -538,7 +687,7 @@ export async function runAgentLoop(
   const ctx: AgentSessionContext = { attachments: [] };
 
   while (true) {
-    const response = await anthropic.messages.create({
+    const response = await createMessageWithRetries({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
       system,

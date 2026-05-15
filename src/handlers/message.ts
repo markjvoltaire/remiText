@@ -2,7 +2,7 @@ import type { Space, Message } from 'spectrum-ts';
 import { attachment } from 'spectrum-ts';
 import { claimMessage, getUserByPhone, getConversationHistory, appendMessage } from '../services/supabase.js';
 import { markRead, sendPhotoStack } from '../services/imessage.js';
-import { runAgentLoop } from '../ai/claude.js';
+import { runAgentLoop, isAnthropicCapacityError } from '../ai/claude.js';
 import { getOnboardingSession, startOnboarding, advanceOnboarding } from '../services/onboarding.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { normalizeContactKey } from '../utils/contactId.js';
@@ -69,7 +69,22 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   const history = await getConversationHistory(user.id);
   await appendMessage(user.id, 'user', text);
 
-  const agentResult = await runAgentLoop(text, history, user);
+  let agentResult: Awaited<ReturnType<typeof runAgentLoop>>;
+  try {
+    agentResult = await runAgentLoop(text, history, user);
+  } catch (err) {
+    const messageText = err instanceof Error ? err.message : String(err);
+    console.error(`[agent] runAgentLoop failed user=${user.id}:`, messageText);
+    if (isAnthropicCapacityError(err)) {
+      const sorry =
+        "Claude's API is temporarily overloaded. Please send your message again in a few seconds — I'll reply as soon as it's available.";
+      await appendMessage(user.id, 'assistant', sorry);
+      await message.reply(sorry);
+      return;
+    }
+    throw err;
+  }
+
   const reply = stripMarkdown(agentResult.text);
 
   console.log(

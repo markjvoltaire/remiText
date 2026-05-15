@@ -91,4 +91,20 @@ export const tools: Anthropic.Tool[] = [
       required: [],
     },
   },
+  {
+    name: 'search_posh_events',
+    description:
+      'Find ticketed parties on Posh (same catalog as https://posh.vip/explore): Haitian Flag Day weekend around May 18 in Miami and New York. Returns numbered text lines plus preview image cards when enabled. Use for Posh / Haitian Flag Day parties — not for flights.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        theme: {
+          type: 'string',
+          description:
+            'Optional theme (e.g. Kompa, brunch). Omit for default Haitian Flag Day window (Eastern May 15–20).',
+        },
+      },
+      required: [],
+    },
+  },
 ];

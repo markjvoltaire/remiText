@@ -15,11 +15,13 @@
   "description": "",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",
+    "@browserbasehq/sdk": "^2.11.0",
     "@duffel/api": "^4.25.0",
     "@resvg/resvg-js": "^2.6.2",
     "@supabase/supabase-js": "^2.105.4",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "playwright-core": "^1.60.0",
     "react": "^19.2.6",
     "satori": "^0.26.0",
     "spectrum-ts": "^1.5.0",
