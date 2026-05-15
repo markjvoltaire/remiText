@@ -29,10 +29,11 @@ import {
   clearPendingOrder,
 } from '../services/supabase.js';
 import {
-  searchPoshHaitianFlagDayEvents,
+  searchPoshEvents,
   formatPoshRowsForSms,
   formatPoshNoResults,
   type PoshEventRow,
+  type PoshTimeframe,
 } from '../services/poshExplore.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
@@ -137,7 +138,7 @@ async function createMessageWithRetries(
       const jitter = Math.floor(Math.random() * 500);
       const wait = backoff + jitter;
       console.warn(
-        `[anthropic] messages.create failed (${detail}), retry ${attempt}/${ANTHROPIC_MESSAGE_MAX_ATTEMPTS} in ${wait}ms`,
+        `[anthropic] messages.create failed (${detail}), retry ${attempt}/${ANTHROPIC_MESSAGE_MAX_ATTEMPTS} after ${(wait / 1000).toFixed(2)}s (${wait} ms backoff)`,
       );
       await delayMs(wait);
     }
@@ -168,10 +169,10 @@ Tool routing:
 - BOOK intent → book_flight (charges the user and creates the order in one step; works for any carrier, including Frontier and other instant-payment airlines).
 - HOLD intent → hold_flight. If hold_flight returns { error: true, instant_only: true }, tell the user this airline requires instant payment and ask if they want to BOOK now; on BOOK affirmative call book_flight.
 - For book_flight / hold_flight, always use an offer_id from the "offers" array in the latest search (or the pending options list in context). Never invent flights, prices, or flight numbers.
-- Local Posh parties (Haitian Flag Day, posh.vip/explore, Haiti nightlife) → search_posh_events. Do not use search_flights for that.
+- Local Posh / posh.vip events → search_posh_events: pass the user's real topic in the query argument and set when from timing (this_weekend / this_week / tonight). Do not use search_flights for that.
 
 Output formatting:
-- When search_posh_events returns a "formatted" field, every numbered block matches one preview image card (same count, chronological order). Use the "formatted" field verbatim as the body of your reply, then add one short closing line.
+- When search_posh_events returns a "formatted" field, every numbered block matches one preview image card (same count, chronological order). Use the "formatted" field verbatim as the body of your reply, then add one short closing line. Do not invent extra events.
 - When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat, paraphrase, or omit options (count must match the number of image cards). Append one follow-up line: "Which one?" or "Want me to book one?"
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
@@ -187,6 +188,11 @@ export interface AgentLoopResult {
 
 interface AgentSessionContext {
   attachments: FlightCardImage[];
+}
+
+export interface RunAgentLoopOptions {
+  /** Fires once before a slow live search (Posh or flights) so the user gets an immediate text bubble. */
+  onSlowSearchStarted?: (toolName: 'search_posh_events' | 'search_flights') => Promise<void>;
 }
 
 async function attachFlightCardSafely(
@@ -582,14 +588,20 @@ async function executeTool(
   }
 
   if (toolName === 'search_posh_events') {
-    const theme = typeof input.theme === 'string' ? input.theme.trim() : '';
-    const discovery = await searchPoshHaitianFlagDayEvents({
-      theme: theme || undefined,
-    });
+    const legacyTheme = typeof input.theme === 'string' ? input.theme.trim() : '';
+    const rawQuery = typeof input.query === 'string' ? input.query.trim() : '';
+    const query = rawQuery || legacyTheme || 'events';
+    const whenRaw = input.when;
+    const when: PoshTimeframe =
+      whenRaw === 'tonight' || whenRaw === 'this_week' || whenRaw === 'this_weekend'
+        ? whenRaw
+        : 'this_week';
+
+    const discovery = await searchPoshEvents({ query, when });
 
     if (discovery.rows.length === 0) {
       return JSON.stringify({
-        formatted: formatPoshNoResults(discovery.theme, discovery.window, discovery.exploreUrl),
+        formatted: formatPoshNoResults(discovery.displayQuery, discovery.window, discovery.exploreUrl),
       });
     }
 
@@ -601,6 +613,7 @@ async function executeTool(
     const meta = {
       exploreUrl: discovery.exploreUrl,
       window: discovery.window,
+      displayQuery: discovery.displayQuery,
     };
 
     let formatted = formatPoshRowsForSms(surfaced, meta);
@@ -670,6 +683,7 @@ export async function runAgentLoop(
   userMessage: string,
   history: ConversationMessage[],
   user: UserProfile,
+  options?: RunAgentLoopOptions,
 ): Promise<AgentLoopResult> {
   const pending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
   const todayISO = new Date().toISOString().split('T')[0]!;
@@ -704,6 +718,15 @@ export async function runAgentLoop(
       const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
 
       messages.push({ role: 'assistant', content: response.content });
+
+      const slowBlock = toolUseBlocks.find(
+        (b) => b.name === 'search_posh_events' || b.name === 'search_flights',
+      );
+      if (slowBlock && options?.onSlowSearchStarted) {
+        await options.onSlowSearchStarted(
+          slowBlock.name as 'search_posh_events' | 'search_flights',
+        );
+      }
 
       const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
         toolUseBlocks.map(async (block) => {

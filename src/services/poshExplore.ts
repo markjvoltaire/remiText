@@ -20,8 +20,46 @@ const DEFAULT_MARKETS = [
   },
 ] as const;
 
+/** Broader match when user asks about Haiti / flag day (catch listings that omit keywords). */
 const HAITIAN_FLAG_KEYWORD_RE =
   /haiti|haitian|ayiti|flag\s*day|f[eè]t\s*drapo|drapo|18\s*mai|may\s*18|🇭🇹/i;
+
+const STOP_WORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'any',
+  'this',
+  'that',
+  'with',
+  'from',
+  'what',
+  'when',
+  'where',
+  'are',
+  'get',
+  'can',
+  'you',
+  'show',
+  'find',
+  'like',
+  'some',
+  'near',
+  'nearby',
+  'weekend',
+  'weekends',
+  'week',
+  'tonight',
+  'today',
+  'tomorrow',
+  'going',
+  'happening',
+  'there',
+  'please',
+  'pls',
+]);
+
+export type PoshTimeframe = 'this_weekend' | 'this_week' | 'tonight';
 
 export interface PoshMarketplaceEvent {
   _id: string;
@@ -64,30 +102,89 @@ function easternYmd(iso: string): string {
   return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 }
 
-/** Calendar year (America/New_York) of the upcoming May 18 Haitian Flag Day relative to `now`. */
-export function haitianFlagDayYear(now: Date): number {
-  const formatter = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-  });
-  const parts = formatter.formatToParts(now);
-  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? '0');
-  const y = get('year');
-  const m = get('month');
-  const d = get('day');
-  if (m < 5 || (m === 5 && d <= 18)) return y;
-  return y + 1;
+function easternWeekdayShort(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
 }
 
-/** Inclusive Eastern calendar dates (YYYY-MM-DD) around Haitian Flag Day (May 18) for parties. */
-export function haitianFlagPartyWindow(now: Date): { start: string; end: string; year: number } {
-  const year = haitianFlagDayYear(now);
+/** `now` wall-clock in America/New_York as YYYY-MM-DD */
+function easternTodayYmd(now: Date): string {
+  return now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+
+export interface DateWindow {
+  start: string;
+  end: string;
+  label: string;
+  year: number;
+}
+
+/**
+ * Build an Eastern calendar window for Posh filters.
+ * - tonight: today only
+ * - this_weekend: Fri–Sun block (upcoming if Mon–Thu)
+ * - this_week: today through ~8 days forward (approx, Eastern)
+ */
+export function dateWindowForTimeframe(now: Date, timeframe: PoshTimeframe): DateWindow {
+  const today = easternTodayYmd(now);
+  const year = Number(today.slice(0, 4));
+
+  if (timeframe === 'tonight') {
+    return {
+      start: today,
+      end: today,
+      label: `tonight (${today})`,
+      year,
+    };
+  }
+
+  if (timeframe === 'this_week') {
+    const endApprox = new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000);
+    const end = endApprox.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    return {
+      start: today,
+      end,
+      label: `${today}–${end} (rolling week)`,
+      year,
+    };
+  }
+
+  // this_weekend — Fri / Sat / Sun in Eastern
+  const wd = now.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
+  let start: string;
+  let end: string;
+
+  if (wd === 'Fri') {
+    start = today;
+    const endD = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+    end = endD.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  } else if (wd === 'Sat') {
+    start = today;
+    const endD = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
+    end = endD.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  } else if (wd === 'Sun') {
+    start = today;
+    end = today;
+  } else {
+    let friAnchor: Date | undefined;
+    for (let i = 0; i < 7; i++) {
+      const cand = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+      const w = cand.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
+      if (w === 'Fri') {
+        friAnchor = cand;
+        break;
+      }
+    }
+    const anchor = friAnchor ?? now;
+    start = anchor.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const endD = new Date(anchor.getTime() + 2 * 24 * 60 * 60 * 1000);
+    end = endD.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  }
+
   return {
-    year,
-    start: `${year}-05-15`,
-    end: `${year}-05-20`,
+    start,
+    end,
+    label: `weekend ${start}–${end} Eastern`,
+    year: Number(start.slice(0, 4)),
   };
 }
 
@@ -95,24 +192,40 @@ function eventKeywordText(e: PoshMarketplaceEvent): string {
   return [e.name, e.groupName, e.venue?.name, e.venue?.address].filter(Boolean).join(' ');
 }
 
-function eventMatchesTheme(e: PoshMarketplaceEvent, theme: string): boolean {
-  const hay = eventKeywordText(e);
-  if (HAITIAN_FLAG_KEYWORD_RE.test(hay)) return true;
-  const t = theme.trim();
-  if (!t) return false;
-  const parts = t
+function significantTokens(query: string): string[] {
+  const raw = query
+    .trim()
     .toLowerCase()
-    .split(/\s+/)
-    .filter((w) => w.length > 2);
-  if (parts.length === 0) return false;
-  const lower = hay.toLowerCase();
-  return parts.every((p) => lower.includes(p));
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '');
+  return raw
+    .split(/[^a-z0-9]+/i)
+    .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+}
+
+function queryImpliesHaitian(query: string): boolean {
+  return HAITIAN_FLAG_KEYWORD_RE.test(query);
+}
+
+/** Post-filter: tokens must appear in listing text, with Haiti-friendly OR branch when query is about Haiti. */
+export function eventMatchesUserIntent(e: PoshMarketplaceEvent, query: string): boolean {
+  const hay = eventKeywordText(e).toLowerCase();
+  const tokens = significantTokens(query);
+  if (tokens.length > 0 && tokens.every((t) => hay.includes(t))) return true;
+  if (queryImpliesHaitian(query) && HAITIAN_FLAG_KEYWORD_RE.test(eventKeywordText(e))) return true;
+  return tokens.length === 0;
 }
 
 function inDateWindow(iso: string | undefined, start: string, end: string): boolean {
   if (!iso) return false;
   const ymd = easternYmd(iso);
   return ymd >= start && ymd <= end;
+}
+
+function isWeekendDayEvent(iso: string | undefined): boolean {
+  if (!iso) return false;
+  const w = easternWeekdayShort(iso);
+  return w === 'Fri' || w === 'Sat' || w === 'Sun';
 }
 
 function poshEventUrl(e: PoshMarketplaceEvent): string {
@@ -134,21 +247,17 @@ function formatEventLine(e: PoshMarketplaceEvent, marketLabel: string): string {
   return `${e.name} — ${when} — ${place} — ${poshEventUrl(e)}`;
 }
 
-export function formatPoshNoResults(
-  theme: string,
-  window: { start: string; end: string },
-  exploreUrl: string,
-): string {
-  return `No matching Posh events for ${theme} (${window.start}–${window.end} Eastern) in Miami or NYC. Browse ${exploreUrl} and change city/filters.`;
+export function formatPoshNoResults(displayQuery: string, window: DateWindow, exploreUrl: string): string {
+  return `No matching Posh events for "${displayQuery}" (${window.label}). Browse ${exploreUrl} and change city or search.`;
 }
 
 export function formatPoshRowsForSms(
   rows: PoshEventRow[],
-  meta: { exploreUrl: string; window: { start: string; end: string; year: number } },
+  meta: { exploreUrl: string; window: DateWindow; displayQuery: string },
 ): string {
   const lines = rows.map(({ event, marketLabel }) => formatEventLine(event, marketLabel));
   const body = lines.map((l, i) => `${i + 1}) ${l}`).join('\n\n');
-  return `${body}\n\nSource: Posh (${meta.exploreUrl}) — ${meta.window.year} window ${meta.window.start} to ${meta.window.end} Eastern.`;
+  return `${body}\n\nSource: Posh (${meta.exploreUrl}) — ${meta.displayQuery} — ${meta.window.label}.`;
 }
 
 async function fetchMarketplacePage(input: FetchInput): Promise<ApiEnvelope> {
@@ -168,18 +277,23 @@ async function fetchMarketplacePage(input: FetchInput): Promise<ApiEnvelope> {
 
 async function fetchAllForMarket(
   market: (typeof DEFAULT_MARKETS)[number],
-  theme: string,
-  window: { start: string; end: string },
-  maxPages: number,
-): Promise<Array<{ event: PoshMarketplaceEvent; marketLabel: string }>> {
-  const out: Array<{ event: PoshMarketplaceEvent; marketLabel: string }> = [];
+  params: {
+    apiSearch: string;
+    window: DateWindow;
+    timeframe: PoshTimeframe;
+    query: string;
+    maxPages: number;
+  },
+): Promise<PoshEventRow[]> {
+  const { apiSearch, window, timeframe, query, maxPages } = params;
+  const out: PoshEventRow[] = [];
   const seen = new Set<string>();
   let cursor: number | undefined;
   for (let page = 0; page < maxPages; page += 1) {
     const input: FetchInput = {
       sort: 'Trending',
-      when: 'This Week',
-      search: '',
+      when: timeframe === 'tonight' ? 'Today' : 'This Week',
+      search: apiSearch.slice(0, 120),
       location: { type: 'custom', lat: market.lat, long: market.long, location: market.label },
       secondaryFilters: [],
       where: market.where,
@@ -192,9 +306,9 @@ async function fetchAllForMarket(
     const events = body.result?.data?.events ?? [];
     const next = body.result?.data?.nextCursor;
     for (const event of events) {
-      const themed = eventMatchesTheme(event, theme);
-      const inWin = inDateWindow(event.startUtc, window.start, window.end);
-      if (!themed || !inWin) continue;
+      if (!inDateWindow(event.startUtc, window.start, window.end)) continue;
+      if (timeframe === 'this_weekend' && !isWeekendDayEvent(event.startUtc)) continue;
+      if (!eventMatchesUserIntent(event, query)) continue;
       if (seen.has(event._id)) continue;
       seen.add(event._id);
       out.push({ event, marketLabel: market.label });
@@ -205,33 +319,40 @@ async function fetchAllForMarket(
   return out;
 }
 
-export interface SearchPoshEventsOptions {
-  /** Natural phrase; Haitian Flag Day–style keywords are always considered when theme mentions Haiti/flag. */
-  theme?: string;
-  /** ISO timestamp anchor for which year's May 18 window to use. */
+export interface SearchPoshEventsParams {
+  /** User intent: what to look for on Posh (genres, artists, themes, "Haitian flag day", "techno rooftop", etc.). */
+  query: string;
+  when: PoshTimeframe;
   now?: Date;
 }
 
-export interface SearchPoshHaitianFlagDayResult {
+export interface SearchPoshEventsResult {
   rows: PoshEventRow[];
   exploreUrl: string;
-  window: { start: string; end: string; year: number };
-  theme: string;
+  window: DateWindow;
+  displayQuery: string;
 }
 
 /**
- * Find Posh listings for Haitian Flag Day weekend (Eastern May 15–20) in major markets.
- * Same inventory as the explore page; uses Posh's public marketplace API.
+ * Search Posh explore listings from user intent (query + timeframe), Miami & NYC.
  */
-export async function searchPoshHaitianFlagDayEvents(
-  options: SearchPoshEventsOptions = {},
-): Promise<SearchPoshHaitianFlagDayResult> {
-  const now = options.now ?? new Date();
-  const window = haitianFlagPartyWindow(now);
-  const theme = options.theme?.trim() || 'Haitian Flag Day';
+export async function searchPoshEvents(params: SearchPoshEventsParams): Promise<SearchPoshEventsResult> {
+  const now = params.now ?? new Date();
+  const window = dateWindowForTimeframe(now, params.when);
+  const query = params.query.trim() || 'events';
+  const displayQuery = query;
+  const apiSearch = significantTokens(query).slice(0, 6).join(' ') || query.slice(0, 80);
 
   const chunks = await Promise.all(
-    DEFAULT_MARKETS.map((m) => fetchAllForMarket(m, theme, window, 4)),
+    DEFAULT_MARKETS.map((m) =>
+      fetchAllForMarket(m, {
+        apiSearch,
+        window,
+        timeframe: params.when,
+        query,
+        maxPages: 5,
+      }),
+    ),
   );
   const merged: PoshEventRow[] = [];
   const dedupe = new Set<string>();
@@ -250,7 +371,19 @@ export async function searchPoshHaitianFlagDayEvents(
   return {
     exploreUrl: EXPLORE_URL,
     window,
-    theme,
+    displayQuery,
     rows: merged,
   };
+}
+
+/** @deprecated use searchPoshEvents */
+export async function searchPoshHaitianFlagDayEvents(options: {
+  theme?: string;
+  now?: Date;
+} = {}): Promise<SearchPoshEventsResult> {
+  return searchPoshEvents({
+    query: options.theme?.trim() || 'Haitian flag day',
+    when: 'this_weekend',
+    now: options.now,
+  });
 }

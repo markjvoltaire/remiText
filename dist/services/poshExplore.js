@@ -17,60 +17,156 @@ const DEFAULT_MARKETS = [
         long: -74.006,
     },
 ];
+/** Broader match when user asks about Haiti / flag day (catch listings that omit keywords). */
 const HAITIAN_FLAG_KEYWORD_RE = /haiti|haitian|ayiti|flag\s*day|f[eè]t\s*drapo|drapo|18\s*mai|may\s*18|🇭🇹/i;
+const STOP_WORDS = new Set([
+    'the',
+    'and',
+    'for',
+    'any',
+    'this',
+    'that',
+    'with',
+    'from',
+    'what',
+    'when',
+    'where',
+    'are',
+    'get',
+    'can',
+    'you',
+    'show',
+    'find',
+    'like',
+    'some',
+    'near',
+    'nearby',
+    'weekend',
+    'weekends',
+    'week',
+    'tonight',
+    'today',
+    'tomorrow',
+    'going',
+    'happening',
+    'there',
+    'please',
+    'pls',
+]);
 function easternYmd(iso) {
     return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
 }
-/** Calendar year (America/New_York) of the upcoming May 18 Haitian Flag Day relative to `now`. */
-export function haitianFlagDayYear(now) {
-    const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: 'America/New_York',
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-    });
-    const parts = formatter.formatToParts(now);
-    const get = (t) => Number(parts.find((p) => p.type === t)?.value ?? '0');
-    const y = get('year');
-    const m = get('month');
-    const d = get('day');
-    if (m < 5 || (m === 5 && d <= 18))
-        return y;
-    return y + 1;
+function easternWeekdayShort(iso) {
+    return new Date(iso).toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
 }
-/** Inclusive Eastern calendar dates (YYYY-MM-DD) around Haitian Flag Day (May 18) for parties. */
-export function haitianFlagPartyWindow(now) {
-    const year = haitianFlagDayYear(now);
+/** `now` wall-clock in America/New_York as YYYY-MM-DD */
+function easternTodayYmd(now) {
+    return now.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+}
+/**
+ * Build an Eastern calendar window for Posh filters.
+ * - tonight: today only
+ * - this_weekend: Fri–Sun block (upcoming if Mon–Thu)
+ * - this_week: today through ~8 days forward (approx, Eastern)
+ */
+export function dateWindowForTimeframe(now, timeframe) {
+    const today = easternTodayYmd(now);
+    const year = Number(today.slice(0, 4));
+    if (timeframe === 'tonight') {
+        return {
+            start: today,
+            end: today,
+            label: `tonight (${today})`,
+            year,
+        };
+    }
+    if (timeframe === 'this_week') {
+        const endApprox = new Date(now.getTime() + 8 * 24 * 60 * 60 * 1000);
+        const end = endApprox.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        return {
+            start: today,
+            end,
+            label: `${today}–${end} (rolling week)`,
+            year,
+        };
+    }
+    // this_weekend — Fri / Sat / Sun in Eastern
+    const wd = now.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
+    let start;
+    let end;
+    if (wd === 'Fri') {
+        start = today;
+        const endD = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+        end = endD.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    }
+    else if (wd === 'Sat') {
+        start = today;
+        const endD = new Date(now.getTime() + 1 * 24 * 60 * 60 * 1000);
+        end = endD.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    }
+    else if (wd === 'Sun') {
+        start = today;
+        end = today;
+    }
+    else {
+        let friAnchor;
+        for (let i = 0; i < 7; i++) {
+            const cand = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+            const w = cand.toLocaleDateString('en-US', { timeZone: 'America/New_York', weekday: 'short' });
+            if (w === 'Fri') {
+                friAnchor = cand;
+                break;
+            }
+        }
+        const anchor = friAnchor ?? now;
+        start = anchor.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+        const endD = new Date(anchor.getTime() + 2 * 24 * 60 * 60 * 1000);
+        end = endD.toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    }
     return {
-        year,
-        start: `${year}-05-15`,
-        end: `${year}-05-20`,
+        start,
+        end,
+        label: `weekend ${start}–${end} Eastern`,
+        year: Number(start.slice(0, 4)),
     };
 }
 function eventKeywordText(e) {
     return [e.name, e.groupName, e.venue?.name, e.venue?.address].filter(Boolean).join(' ');
 }
-function eventMatchesTheme(e, theme) {
-    const hay = eventKeywordText(e);
-    if (HAITIAN_FLAG_KEYWORD_RE.test(hay))
-        return true;
-    const t = theme.trim();
-    if (!t)
-        return false;
-    const parts = t
+function significantTokens(query) {
+    const raw = query
+        .trim()
         .toLowerCase()
-        .split(/\s+/)
-        .filter((w) => w.length > 2);
-    if (parts.length === 0)
-        return false;
-    const lower = hay.toLowerCase();
-    return parts.every((p) => lower.includes(p));
+        .normalize('NFKD')
+        .replace(/\p{M}/gu, '');
+    return raw
+        .split(/[^a-z0-9]+/i)
+        .filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+}
+function queryImpliesHaitian(query) {
+    return HAITIAN_FLAG_KEYWORD_RE.test(query);
+}
+/** Post-filter: tokens must appear in listing text, with Haiti-friendly OR branch when query is about Haiti. */
+export function eventMatchesUserIntent(e, query) {
+    const hay = eventKeywordText(e).toLowerCase();
+    const tokens = significantTokens(query);
+    if (tokens.length > 0 && tokens.every((t) => hay.includes(t)))
+        return true;
+    if (queryImpliesHaitian(query) && HAITIAN_FLAG_KEYWORD_RE.test(eventKeywordText(e)))
+        return true;
+    return tokens.length === 0;
 }
 function inDateWindow(iso, start, end) {
     if (!iso)
         return false;
     const ymd = easternYmd(iso);
     return ymd >= start && ymd <= end;
+}
+function isWeekendDayEvent(iso) {
+    if (!iso)
+        return false;
+    const w = easternWeekdayShort(iso);
+    return w === 'Fri' || w === 'Sat' || w === 'Sun';
 }
 function poshEventUrl(e) {
     return `https://posh.vip/${e.groupUrl}/${e.url}`;
@@ -89,13 +185,13 @@ function formatEventLine(e, marketLabel) {
     const place = e.venue?.name ?? marketLabel;
     return `${e.name} — ${when} — ${place} — ${poshEventUrl(e)}`;
 }
-export function formatPoshNoResults(theme, window, exploreUrl) {
-    return `No matching Posh events for ${theme} (${window.start}–${window.end} Eastern) in Miami or NYC. Browse ${exploreUrl} and change city/filters.`;
+export function formatPoshNoResults(displayQuery, window, exploreUrl) {
+    return `No matching Posh events for "${displayQuery}" (${window.label}). Browse ${exploreUrl} and change city or search.`;
 }
 export function formatPoshRowsForSms(rows, meta) {
     const lines = rows.map(({ event, marketLabel }) => formatEventLine(event, marketLabel));
     const body = lines.map((l, i) => `${i + 1}) ${l}`).join('\n\n');
-    return `${body}\n\nSource: Posh (${meta.exploreUrl}) — ${meta.window.year} window ${meta.window.start} to ${meta.window.end} Eastern.`;
+    return `${body}\n\nSource: Posh (${meta.exploreUrl}) — ${meta.displayQuery} — ${meta.window.label}.`;
 }
 async function fetchMarketplacePage(input) {
     const url = `${API_BASE}?input=${encodeURIComponent(JSON.stringify(input))}`;
@@ -111,15 +207,16 @@ async function fetchMarketplacePage(input) {
     }
     return (await res.json());
 }
-async function fetchAllForMarket(market, theme, window, maxPages) {
+async function fetchAllForMarket(market, params) {
+    const { apiSearch, window, timeframe, query, maxPages } = params;
     const out = [];
     const seen = new Set();
     let cursor;
     for (let page = 0; page < maxPages; page += 1) {
         const input = {
             sort: 'Trending',
-            when: 'This Week',
-            search: '',
+            when: timeframe === 'tonight' ? 'Today' : 'This Week',
+            search: apiSearch.slice(0, 120),
             location: { type: 'custom', lat: market.lat, long: market.long, location: market.label },
             secondaryFilters: [],
             where: market.where,
@@ -132,9 +229,11 @@ async function fetchAllForMarket(market, theme, window, maxPages) {
         const events = body.result?.data?.events ?? [];
         const next = body.result?.data?.nextCursor;
         for (const event of events) {
-            const themed = eventMatchesTheme(event, theme);
-            const inWin = inDateWindow(event.startUtc, window.start, window.end);
-            if (!themed || !inWin)
+            if (!inDateWindow(event.startUtc, window.start, window.end))
+                continue;
+            if (timeframe === 'this_weekend' && !isWeekendDayEvent(event.startUtc))
+                continue;
+            if (!eventMatchesUserIntent(event, query))
                 continue;
             if (seen.has(event._id))
                 continue;
@@ -148,14 +247,21 @@ async function fetchAllForMarket(market, theme, window, maxPages) {
     return out;
 }
 /**
- * Find Posh listings for Haitian Flag Day weekend (Eastern May 15–20) in major markets.
- * Same inventory as the explore page; uses Posh's public marketplace API.
+ * Search Posh explore listings from user intent (query + timeframe), Miami & NYC.
  */
-export async function searchPoshHaitianFlagDayEvents(options = {}) {
-    const now = options.now ?? new Date();
-    const window = haitianFlagPartyWindow(now);
-    const theme = options.theme?.trim() || 'Haitian Flag Day';
-    const chunks = await Promise.all(DEFAULT_MARKETS.map((m) => fetchAllForMarket(m, theme, window, 4)));
+export async function searchPoshEvents(params) {
+    const now = params.now ?? new Date();
+    const window = dateWindowForTimeframe(now, params.when);
+    const query = params.query.trim() || 'events';
+    const displayQuery = query;
+    const apiSearch = significantTokens(query).slice(0, 6).join(' ') || query.slice(0, 80);
+    const chunks = await Promise.all(DEFAULT_MARKETS.map((m) => fetchAllForMarket(m, {
+        apiSearch,
+        window,
+        timeframe: params.when,
+        query,
+        maxPages: 5,
+    })));
     const merged = [];
     const dedupe = new Set();
     for (const row of chunks.flat()) {
@@ -172,7 +278,15 @@ export async function searchPoshHaitianFlagDayEvents(options = {}) {
     return {
         exploreUrl: EXPLORE_URL,
         window,
-        theme,
+        displayQuery,
         rows: merged,
     };
+}
+/** @deprecated use searchPoshEvents */
+export async function searchPoshHaitianFlagDayEvents(options = {}) {
+    return searchPoshEvents({
+        query: options.theme?.trim() || 'Haitian flag day',
+        when: 'this_weekend',
+        now: options.now,
+    });
 }
