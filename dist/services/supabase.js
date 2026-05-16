@@ -41,7 +41,20 @@ export async function getConversationHistory(userId) {
         return [];
     return data.slice().reverse();
 }
+const CONVERSATION_LOG_MAX_CHARS = Math.max(200, Math.min(4000, Number.parseInt(process.env.REMI_CONVERSATION_LOG_MAX_CHARS ?? '2000', 10) || 2000));
+function logConversationToRender(userId, role, content) {
+    const text = content.length > CONVERSATION_LOG_MAX_CHARS
+        ? `${content.slice(0, CONVERSATION_LOG_MAX_CHARS)}…`
+        : content;
+    console.log('[conversation]', JSON.stringify({
+        user_id: userId,
+        role,
+        chars: content.length,
+        text,
+    }));
+}
 export async function appendMessage(userId, role, content) {
+    logConversationToRender(userId, role, content);
     await supabase.from('conversations').insert({ user_id: userId, role, content });
 }
 export async function setLastFlightSearch(userId, ctx) {
