@@ -84,23 +84,4 @@ export const tools = [
             required: [],
         },
     },
-    {
-        name: 'search_posh_events',
-        description: 'Search ticketed events on Posh (posh.vip/explore) in Miami and New York. Use the user\'s actual topic or vibe in `query` (not only Haitian / flag day). Pick `when` from their timing: this_weekend, this_week, or tonight. Returns numbered lines plus preview image cards when enabled. Never use for flights.',
-        input_schema: {
-            type: 'object',
-            properties: {
-                query: {
-                    type: 'string',
-                    description: 'What to search for — copy the user\'s intent: genres, artist names, themes (e.g. "Haitian flag day", "techno rooftop", "afrobeats brunch", "comedy show"). Required.',
-                },
-                when: {
-                    type: 'string',
-                    enum: ['this_weekend', 'this_week', 'tonight'],
-                    description: 'Time scope: this_weekend if they said weekend; tonight for today/tonight; this_week for the next several days or vague "this week".',
-                },
-            },
-            required: ['query', 'when'],
-        },
-    },
 ];

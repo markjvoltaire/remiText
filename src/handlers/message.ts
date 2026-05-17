@@ -73,13 +73,10 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   let agentResult: Awaited<ReturnType<typeof runAgentLoop>>;
   try {
     agentResult = await runAgentLoop(text, history, user, {
-      onSlowSearchStarted: async (toolName) => {
+      onSlowSearchStarted: async () => {
         if (slowAckSent) return;
         slowAckSent = true;
-        const ack =
-          toolName === 'search_posh_events'
-            ? "I'll check Posh and text you back with what I find."
-            : "I'll search flights and text you back with what I find.";
+        const ack = "I'll search flights and text you back with what I find.";
         await appendMessage(user.id, 'assistant', ack);
         await message.reply(ack);
       },

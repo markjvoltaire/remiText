@@ -6,11 +6,10 @@ import { offersToSMS, formatHeldOrderConfirmationSMS, sortFlightOffersByPrice, }
 import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
 import { computeAllInPrice, formatMoneyFromCents } from '../utils/pricing.js';
 import { setLastFlightSearch, clearLastFlightSearch, setPendingOrder, clearPendingOrder, } from '../services/supabase.js';
-import { searchPoshEvents, formatPoshRowsForSms, formatPoshNoResults, } from '../services/poshExplore.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
-import { generateFlightCardImage, generatePoshEventCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, poshEventCardInputFromRow, } from '../images/satori/index.js';
+import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, } from '../images/satori/index.js';
 const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '5', 10) || 0));
 /** Cheapest first; when preview cards are enabled, same length as image count. */
 function surfacedSearchOffers(offers) {
@@ -119,10 +118,8 @@ Tool routing:
 - BOOK intent → book_flight (charges the user and creates the order in one step; works for any carrier, including Frontier and other instant-payment airlines).
 - HOLD intent → hold_flight. If hold_flight returns { error: true, instant_only: true }, tell the user this airline requires instant payment and ask if they want to BOOK now; on BOOK affirmative call book_flight.
 - For book_flight / hold_flight, always use an offer_id from the "offers" array in the latest search (or the pending options list in context). Never invent flights, prices, or flight numbers.
-- Local Posh / posh.vip events → search_posh_events: pass the user's real topic in the query argument and set when from timing (this_weekend / this_week / tonight). Do not use search_flights for that.
 
 Output formatting:
-- When search_posh_events returns a "formatted" field, every numbered block matches one preview image card (same count, chronological order). Use the "formatted" field verbatim as the body of your reply, then add one short closing line. Do not invent extra events.
 - When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat, paraphrase, or omit options (count must match the number of image cards). Append one follow-up line: "Which one?" or "Want me to book one?"
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
@@ -176,31 +173,6 @@ async function attachSearchPreviewCardsSafely(ctx, offers, tag) {
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[flightCardImage] preview skipped for ${tag}: ${msg}`);
-    }
-}
-async function attachPoshPreviewCardsSafely(ctx, rows, tag) {
-    if (SEARCH_PREVIEW_CARD_LIMIT <= 0 || rows.length === 0)
-        return;
-    try {
-        const limited = rows.slice(0, SEARCH_PREVIEW_CARD_LIMIT);
-        const images = await Promise.all(limited.map(async (row, index) => {
-            const input = poshEventCardInputFromRow(row, index);
-            return generatePoshEventCardImage(input);
-        }));
-        let attached = 0;
-        for (const img of images) {
-            if (img) {
-                ctx.attachments.push(img);
-                attached += 1;
-            }
-        }
-        if (attached > 0) {
-            console.log(`[poshCardImage] attached ${attached} preview(s) for ${tag}`);
-        }
-    }
-    catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[poshCardImage] preview skipped for ${tag}: ${msg}`);
     }
 }
 async function executeTool(toolName, input, user, ctx) {
@@ -469,35 +441,6 @@ async function executeTool(toolName, input, user, ctx) {
             message: `Booked! Confirmation: ${order.booking_reference}. Have a great flight!`,
         });
     }
-    if (toolName === 'search_posh_events') {
-        const legacyTheme = typeof input.theme === 'string' ? input.theme.trim() : '';
-        const rawQuery = typeof input.query === 'string' ? input.query.trim() : '';
-        const query = rawQuery || legacyTheme || 'events';
-        const whenRaw = input.when;
-        const when = whenRaw === 'tonight' || whenRaw === 'this_week' || whenRaw === 'this_weekend'
-            ? whenRaw
-            : 'this_week';
-        const discovery = await searchPoshEvents({ query, when });
-        if (discovery.rows.length === 0) {
-            return JSON.stringify({
-                formatted: formatPoshNoResults(discovery.displayQuery, discovery.window, discovery.exploreUrl),
-            });
-        }
-        const surfaced = SEARCH_PREVIEW_CARD_LIMIT <= 0
-            ? discovery.rows
-            : discovery.rows.slice(0, SEARCH_PREVIEW_CARD_LIMIT);
-        const meta = {
-            exploreUrl: discovery.exploreUrl,
-            window: discovery.window,
-            displayQuery: discovery.displayQuery,
-        };
-        let formatted = formatPoshRowsForSms(surfaced, meta);
-        if (SEARCH_PREVIEW_CARD_LIMIT > 0 && discovery.rows.length > surfaced.length) {
-            formatted += `\n\n+ ${discovery.rows.length - surfaced.length} more on ${discovery.exploreUrl}`;
-        }
-        await attachPoshPreviewCardsSafely(ctx, surfaced, 'search_posh_events');
-        return JSON.stringify({ formatted });
-    }
     if (toolName === 'confirm_booking') {
         if (!user.stripe_spt_id) {
             return JSON.stringify({
@@ -570,9 +513,9 @@ export async function runAgentLoop(userMessage, history, user, options) {
         if (response.stop_reason === 'tool_use') {
             const toolUseBlocks = response.content.filter((b) => b.type === 'tool_use');
             messages.push({ role: 'assistant', content: response.content });
-            const slowBlock = toolUseBlocks.find((b) => b.name === 'search_posh_events' || b.name === 'search_flights');
+            const slowBlock = toolUseBlocks.find((b) => b.name === 'search_flights');
             if (slowBlock && options?.onSlowSearchStarted) {
-                await options.onSlowSearchStarted(slowBlock.name);
+                await options.onSlowSearchStarted('search_flights');
             }
             const toolResults = await Promise.all(toolUseBlocks.map(async (block) => {
                 try {
