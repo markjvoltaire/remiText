@@ -54,19 +54,9 @@ export async function handleMessage(space, message) {
     console.log(`[msg] user=${user.id}`);
     const history = await getConversationHistory(user.id);
     await appendMessage(user.id, 'user', text);
-    let slowAckSent = false;
     let agentResult;
     try {
-        agentResult = await runAgentLoop(text, history, user, {
-            onSlowSearchStarted: async () => {
-                if (slowAckSent)
-                    return;
-                slowAckSent = true;
-                const ack = "I'll search flights and text you back with what I find.";
-                await appendMessage(user.id, 'assistant', ack);
-                await message.reply(ack);
-            },
-        });
+        agentResult = await runAgentLoop(text, history, user);
     }
     catch (err) {
         const messageText = err instanceof Error ? err.message : String(err);

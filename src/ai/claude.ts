@@ -179,11 +179,6 @@ interface AgentSessionContext {
   attachments: FlightCardImage[];
 }
 
-export interface RunAgentLoopOptions {
-  /** Fires once before flight search so the user gets an immediate text bubble. */
-  onSlowSearchStarted?: (toolName: 'search_flights') => Promise<void>;
-}
-
 async function attachFlightCardSafely(
   ctx: AgentSessionContext,
   order: HeldOrder,
@@ -602,7 +597,6 @@ export async function runAgentLoop(
   userMessage: string,
   history: ConversationMessage[],
   user: UserProfile,
-  options?: RunAgentLoopOptions,
 ): Promise<AgentLoopResult> {
   const pending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
   const todayISO = new Date().toISOString().split('T')[0]!;
@@ -637,11 +631,6 @@ export async function runAgentLoop(
       const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use');
 
       messages.push({ role: 'assistant', content: response.content });
-
-      const slowBlock = toolUseBlocks.find((b) => b.name === 'search_flights');
-      if (slowBlock && options?.onSlowSearchStarted) {
-        await options.onSlowSearchStarted('search_flights');
-      }
 
       const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
         toolUseBlocks.map(async (block) => {

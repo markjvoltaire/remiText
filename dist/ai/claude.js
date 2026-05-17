@@ -485,7 +485,7 @@ async function executeTool(toolName, input, user, ctx) {
     }
     throw new Error(`Unknown tool: ${toolName}`);
 }
-export async function runAgentLoop(userMessage, history, user, options) {
+export async function runAgentLoop(userMessage, history, user) {
     const pending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
     const todayISO = new Date().toISOString().split('T')[0];
     const resolved = resolveRelativeDates(userMessage, todayISO);
@@ -513,10 +513,6 @@ export async function runAgentLoop(userMessage, history, user, options) {
         if (response.stop_reason === 'tool_use') {
             const toolUseBlocks = response.content.filter((b) => b.type === 'tool_use');
             messages.push({ role: 'assistant', content: response.content });
-            const slowBlock = toolUseBlocks.find((b) => b.name === 'search_flights');
-            if (slowBlock && options?.onSlowSearchStarted) {
-                await options.onSlowSearchStarted('search_flights');
-            }
             const toolResults = await Promise.all(toolUseBlocks.map(async (block) => {
                 try {
                     console.log(`[tool] ${block.name} input=${JSON.stringify(block.input)}`);
