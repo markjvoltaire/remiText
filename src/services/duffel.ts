@@ -1,7 +1,19 @@
 import { Duffel } from '@duffel/api';
 import type { FlightOffer, HeldOrder } from '../types.js';
 
-const duffel = new Duffel({ token: process.env.DUFFEL_API_KEY! });
+function getDuffelApiKey(): string {
+  const isProd = process.env.NODE_ENV === 'production';
+  const key = isProd ? process.env.DUFFEL_API_KEY_PROD : process.env.DUFFEL_API_KEY;
+  if (!key) {
+    throw new Error(isProd ? 'Missing DUFFEL_API_KEY_PROD' : 'Missing DUFFEL_API_KEY');
+  }
+  return key;
+}
+
+const duffelMode = process.env.NODE_ENV === 'production' ? 'live' : 'test';
+console.log(`[duffel] using ${duffelMode} API token`);
+
+const duffel = new Duffel({ token: getDuffelApiKey() });
 
 /** Clone Duffel `data` payloads for JSONB storage / logs without mutation surprises. */
 export function serializeDuffelData(data: unknown): Record<string, unknown> {

@@ -19,7 +19,7 @@ services:
         sync: false
       - key: MESSAGE_HANDLER_TIMEOUT_MS
         sync: false
-      - key: DUFFEL_API_KEY
+      - key: DUFFEL_API_KEY_PROD
         sync: false
       - key: STRIPE_SECRET_KEY
         sync: false
