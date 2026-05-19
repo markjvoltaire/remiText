@@ -5,6 +5,8 @@ import { imessage } from 'spectrum-ts/providers/imessage';
 import { terminal } from 'spectrum-ts/providers/terminal';
 import { handleMessage } from './handlers/message.js';
 import { assertSeenMessagesTableReady } from './services/supabase.js';
+import { startLocationShareWatcher } from './services/imessage.js';
+import { handleNewLocationShare, seedExistingLocationSharers } from './services/locationShare.js';
 
 const PROVIDER = (process.env.SPECTRUM_PROVIDER ?? 'imessage').toLowerCase();
 
@@ -29,6 +31,12 @@ const app = await Spectrum({
 });
 
 await assertSeenMessagesTableReady();
+
+if (PROVIDER === 'imessage') {
+  await seedExistingLocationSharers();
+  startLocationShareWatcher(handleNewLocationShare);
+  console.log('[locations] watching Find My location shares');
+}
 
 console.log(`Remi is online. provider=${PROVIDER}`);
 

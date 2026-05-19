@@ -31,6 +31,8 @@ import {
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
+import { getSharedFriendLocation } from '../services/imessage.js';
+import { nearestAirports } from '../utils/nearestAirport.js';
 import {
   generateFlightCardImage,
   flightCardInputFromHeldOrder,
@@ -166,7 +168,7 @@ Output formatting:
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
 - Format prices as "$X" not "$X.XX" unless cents matter.
-- If a user's request is ambiguous (e.g. no origin city), ask one clarifying question.`;
+- If a user's request is ambiguous (e.g. no origin city), call get_user_location first when they may have shared Find My location with Remi. If location is available, use the nearest airport as origin. If not_sharing, ask where they are flying from and mention they can share location with Remi in Find My (People → Share My Location). If no_coordinates yet, ask for their departure city or airport. If multiple nearby airports are returned, ask which one.`;
 
 type ToolInput = Record<string, unknown>;
 
@@ -245,6 +247,24 @@ async function executeTool(
   user: UserProfile,
   ctx: AgentSessionContext,
 ): Promise<string> {
+  if (toolName === 'get_user_location') {
+    const loc = await getSharedFriendLocation(user.phone);
+    if (!loc.ok) {
+      return JSON.stringify({ available: false, reason: loc.reason });
+    }
+    const nearest = nearestAirports(loc.latitude, loc.longitude, 2);
+    return JSON.stringify({
+      available: true,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      shortAddress: loc.shortAddress,
+      longAddress: loc.longAddress,
+      locationType: loc.locationType,
+      nearest_airports: nearest,
+      suggested_origin: nearest[0]?.iata,
+    });
+  }
+
   if (toolName === 'search_flights') {
     const { offers, rawOfferRequest } = await searchFlights({
       origin: input.origin as string,

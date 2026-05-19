@@ -27,6 +27,25 @@ export async function claimMessage(id: string): Promise<boolean> {
   return true; // don't drop messages on unexpected errors
 }
 
+/** Returns true the first time we acknowledge a contact's Find My location share. */
+export async function claimLocationAcknowledgment(contactKey: string): Promise<boolean> {
+  const { error } = await supabase.from('location_acknowledgments').insert({ contact_key: contactKey });
+  if (!error) return true;
+  if (error.code === '23505') return false;
+  console.error('Supabase location ack error, acknowledging anyway:', error.message);
+  return true;
+}
+
+/** Silently record an existing share without sending a confirmation message. */
+export async function seedLocationAcknowledgment(contactKey: string): Promise<void> {
+  const { error } = await supabase
+    .from('location_acknowledgments')
+    .upsert({ contact_key: contactKey }, { onConflict: 'contact_key', ignoreDuplicates: true });
+  if (error) {
+    console.warn(`Supabase location seed error contact=${contactKey}:`, error.message);
+  }
+}
+
 export async function getUserByPhone(phone: string): Promise<UserProfile | null> {
   const trimmed = phone.trim();
   const normalized = normalizeContactKey(trimmed);

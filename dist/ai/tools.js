@@ -1,5 +1,14 @@
 export const tools = [
     {
+        name: 'get_user_location',
+        description: "Get the user's shared Find My location and nearest departure airport(s). Call when origin is missing and they may have shared location with Remi in Find My.",
+        input_schema: {
+            type: 'object',
+            properties: {},
+            required: [],
+        },
+    },
+    {
         name: 'search_flights',
         description: 'Search for available flights. Returns up to 5 offers sorted by price. Always call this before presenting options to the user.',
         input_schema: {

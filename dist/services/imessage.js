@@ -1,5 +1,6 @@
 import { cloud } from 'spectrum-ts';
-import { createClient } from '@photon-ai/advanced-imessage';
+import { createClient, NotFoundError } from '@photon-ai/advanced-imessage';
+import { normalizeContactKey } from '../utils/contactId.js';
 const IMESSAGE_ADDRESS = process.env.SPECTRUM_IMESSAGE_ADDRESS ?? 'imessage.spectrum.photon.codes:443';
 let _client = null;
 let _tokenData = null;
@@ -29,6 +30,70 @@ function getClient() {
 }
 export async function markRead(spaceId) {
     await getClient().chats.markRead(spaceId);
+}
+export async function getSharedFriendLocation(phone) {
+    try {
+        const loc = await getClient().locations.get(phone);
+        if (loc.latitude === undefined || loc.longitude === undefined) {
+            return { ok: false, reason: 'no_coordinates' };
+        }
+        return {
+            ok: true,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            shortAddress: loc.shortAddress,
+            longAddress: loc.longAddress,
+            locationType: loc.locationType,
+        };
+    }
+    catch (err) {
+        if (err instanceof NotFoundError) {
+            return { ok: false, reason: 'not_sharing' };
+        }
+        throw err;
+    }
+}
+export async function listSharedFriendLocations() {
+    return getClient().locations.list();
+}
+/** Build a chat GUID from a normalized contact address (phone or email). */
+export function chatGuidForContact(contactKey) {
+    return `any;-;${contactKey}`;
+}
+export async function sendTextMessage(chatGuid, text) {
+    const sent = await getClient().messages.sendText(chatGuid, text);
+    return sent.guid;
+}
+const LOCATION_WATCH_RECONNECT_MS = 5_000;
+/**
+ * Watches Find My location shares and invokes `onShare` for each live update.
+ * Reconnects automatically when the stream drops.
+ */
+export function startLocationShareWatcher(onShare) {
+    void (async () => {
+        while (true) {
+            try {
+                const stream = getClient().locations.watch();
+                for await (const update of stream) {
+                    const contactKey = normalizeContactKey(update.location.address);
+                    if (!contactKey)
+                        continue;
+                    try {
+                        await onShare(contactKey, update.location);
+                    }
+                    catch (err) {
+                        const msg = err instanceof Error ? err.message : String(err);
+                        console.warn(`[locations] onShare failed contact=${contactKey}: ${msg}`);
+                    }
+                }
+            }
+            catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                console.warn(`[locations] watch disconnected, reconnecting in ${LOCATION_WATCH_RECONNECT_MS}ms: ${msg}`);
+                await new Promise((resolve) => setTimeout(resolve, LOCATION_WATCH_RECONNECT_MS));
+            }
+        }
+    })();
 }
 /**
  * Send a single iMessage composed of multiple attachment parts plus an

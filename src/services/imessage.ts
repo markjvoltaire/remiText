@@ -1,7 +1,19 @@
 import { cloud } from 'spectrum-ts';
 import type { TokenData } from 'spectrum-ts';
-import { createClient } from '@photon-ai/advanced-imessage';
-import type { AdvancedIMessage } from '@photon-ai/advanced-imessage';
+import { createClient, NotFoundError } from '@photon-ai/advanced-imessage';
+import type { AdvancedIMessage, SharedFriendLocation } from '@photon-ai/advanced-imessage';
+import { normalizeContactKey } from '../utils/contactId.js';
+
+export type SharedFriendLocationResult =
+  | {
+      ok: true;
+      latitude: number;
+      longitude: number;
+      shortAddress?: string;
+      longAddress?: string;
+      locationType: SharedFriendLocation['locationType'];
+    }
+  | { ok: false; reason: 'not_sharing' | 'no_coordinates' };
 
 export interface PhotoStackImage {
   buffer: Buffer;
@@ -50,6 +62,74 @@ function getClient(): AdvancedIMessage {
 
 export async function markRead(spaceId: string): Promise<void> {
   await getClient().chats.markRead(spaceId);
+}
+
+export async function getSharedFriendLocation(phone: string): Promise<SharedFriendLocationResult> {
+  try {
+    const loc = await getClient().locations.get(phone);
+    if (loc.latitude === undefined || loc.longitude === undefined) {
+      return { ok: false, reason: 'no_coordinates' };
+    }
+    return {
+      ok: true,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      shortAddress: loc.shortAddress,
+      longAddress: loc.longAddress,
+      locationType: loc.locationType,
+    };
+  } catch (err) {
+    if (err instanceof NotFoundError) {
+      return { ok: false, reason: 'not_sharing' };
+    }
+    throw err;
+  }
+}
+
+export async function listSharedFriendLocations(): Promise<SharedFriendLocation[]> {
+  return getClient().locations.list();
+}
+
+/** Build a chat GUID from a normalized contact address (phone or email). */
+export function chatGuidForContact(contactKey: string): string {
+  return `any;-;${contactKey}`;
+}
+
+export async function sendTextMessage(chatGuid: string, text: string): Promise<string> {
+  const sent = await getClient().messages.sendText(chatGuid, text);
+  return sent.guid;
+}
+
+const LOCATION_WATCH_RECONNECT_MS = 5_000;
+
+/**
+ * Watches Find My location shares and invokes `onShare` for each live update.
+ * Reconnects automatically when the stream drops.
+ */
+export function startLocationShareWatcher(
+  onShare: (contactKey: string, location: SharedFriendLocation) => void | Promise<void>,
+): void {
+  void (async () => {
+    while (true) {
+      try {
+        const stream = getClient().locations.watch();
+        for await (const update of stream) {
+          const contactKey = normalizeContactKey(update.location.address);
+          if (!contactKey) continue;
+          try {
+            await onShare(contactKey, update.location);
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[locations] onShare failed contact=${contactKey}: ${msg}`);
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[locations] watch disconnected, reconnecting in ${LOCATION_WATCH_RECONNECT_MS}ms: ${msg}`);
+        await new Promise((resolve) => setTimeout(resolve, LOCATION_WATCH_RECONNECT_MS));
+      }
+    }
+  })();
 }
 
 /**
