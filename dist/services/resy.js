@@ -345,10 +345,13 @@ export async function getRestaurantAvailability(params) {
     if (params.partySize < 1 || params.partySize > 20) {
         throw new Error('Party size must be between 1 and 20');
     }
+    const [lat, lng] = resolveLocation(params.location ?? 'new york');
     const venues = await fetchAvailability({
         venue_id: String(params.venueId),
         day: params.date,
         party_size: String(params.partySize),
+        lat: String(lat),
+        long: String(lng),
     });
     return venues.find((v) => v.venue_id === params.venueId) ?? venues[0] ?? null;
 }

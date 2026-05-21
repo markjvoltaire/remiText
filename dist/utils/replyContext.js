@@ -23,11 +23,24 @@ export function buildPreviewReplyContext(user, kind, partIndex) {
         const venue = user.last_restaurant_search?.venues?.[partIndex];
         if (!venue)
             return null;
+        const priceTag = venue.price_range ? '$'.repeat(Math.min(venue.price_range, 4)) : '';
+        const ratingTag = venue.rating ? `rating ${venue.rating.toFixed(1)}` : '';
+        const facts = [
+            `name="${venue.name}"`,
+            `venue_id=${venue.venue_id}`,
+            venue.cuisine ? `cuisine="${venue.cuisine}"` : '',
+            venue.neighborhood ? `neighborhood="${venue.neighborhood}"` : '',
+            priceTag ? `price=${priceTag}` : '',
+            ratingTag,
+        ]
+            .filter(Boolean)
+            .join(', ');
         return [
-            `The user replied to the image for restaurant option ${partIndex + 1}: ${venue.name} (venue_id=${venue.venue_id}).`,
-            'Treat this as their selected restaurant.',
-            'If they ask for more info or times, call get_restaurant_availability for this venue_id.',
-            'Do not ask which restaurant they mean.',
+            `The user replied to the image for restaurant option ${partIndex + 1} (${facts}).`,
+            'Treat this as their selected restaurant. Do not ask which restaurant they mean.',
+            'Default action for "tell me more", "more info", "what\'s it like", "story", "what to expect": write a SHORT 2-3 sentence brief in plain text — cuisine, vibe, neighborhood, and what diners can expect. End with one short follow-up question like "Want to see times?".',
+            'When describing the venue, you MAY use general knowledge for well-known restaurants. If you do NOT confidently know this specific venue, describe it factually using only the cuisine, neighborhood, price, and rating above — never invent specific dishes, chef names, awards, or history.',
+            'Only call get_restaurant_availability when the user explicitly asks for times, availability, reservation slots, or says yes/sure to "Want to see times?".',
         ].join(' ');
     }
     const offer = user.last_flight_search?.offers?.[partIndex];

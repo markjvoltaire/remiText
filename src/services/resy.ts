@@ -101,6 +101,8 @@ export interface GetRestaurantAvailabilityParams {
   venueId: number;
   date: string;
   partySize: number;
+  /** City or neighborhood used to resolve lat/lng. Resy's /4/find needs geo context even for venue lookups. */
+  location?: string;
 }
 
 let authToken = '';
@@ -408,10 +410,14 @@ export async function getRestaurantAvailability(
     throw new Error('Party size must be between 1 and 20');
   }
 
+  const [lat, lng] = resolveLocation(params.location ?? 'new york');
+
   const venues = await fetchAvailability({
     venue_id: String(params.venueId),
     day: params.date,
     party_size: String(params.partySize),
+    lat: String(lat),
+    long: String(lng),
   });
 
   return venues.find((v) => v.venue_id === params.venueId) ?? venues[0] ?? null;

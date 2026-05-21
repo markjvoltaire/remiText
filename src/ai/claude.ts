@@ -167,6 +167,8 @@ Rules:
 - If the user's message includes [Context: ...] indicating they replied to a specific preview image, treat that option as their selection — do not ask "which one?"
 - If pending restaurant options are listed in context below, use them ONLY for venue selection (when the user picks by name, position, or image reply). If the user's current message asks for a different cuisine, neighborhood, date, party size, or city than the cached search params, you MUST call search_restaurants again with the new parameters — do NOT relabel cached venues as a different cuisine.
 - If the user's message includes [Context: ...] indicating they replied to a specific preview image, treat that option as their selection — do not ask "which one?"
+- When the user asks "tell me more", "more info", "what's it like", "story", or "what to expect" about a specific restaurant they selected (via image reply or by name/position), DO NOT call get_restaurant_availability. Instead write a SHORT 2-3 sentence brief — cuisine, vibe, neighborhood, what to expect — using the facts in the [Context: ...] block plus general knowledge ONLY for well-known venues. Never invent dishes, chefs, awards, or history. End with one short follow-up like "Want to see times?".
+- Only call get_restaurant_availability when the user asks for times, availability, reservations, or affirms a "Want to see times?" follow-up.
 - Before taking action on a specific flight, restate the exact flight (airline, time, price) and ask ONE question: "HOLD or BOOK?"
 - If the user asks to book or reserve a restaurant table, tell them you can show availability today and full Resy booking is coming soon. Do not attempt to book.
 
@@ -800,7 +802,12 @@ async function executeTool(
     }
 
     try {
-      const venue = await getRestaurantAvailability({ venueId, date, partySize });
+      const venue = await getRestaurantAvailability({
+        venueId,
+        date,
+        partySize,
+        location: searchParams?.location,
+      });
       if (!venue) {
         return JSON.stringify({
           error: true,
