@@ -93,6 +93,15 @@ export async function setLastRestaurantSearch(userId, ctx) {
 export async function clearLastRestaurantSearch(userId) {
     await supabase.from('users').update({ last_restaurant_search: null }).eq('id', userId);
 }
+export async function setLastSentPreviewCards(userId, cards) {
+    const { error } = await supabase
+        .from('users')
+        .update({ last_sent_preview_cards: cards })
+        .eq('id', userId);
+    if (error) {
+        console.warn(`[supabase] setLastSentPreviewCards failed user=${userId}:`, error.message);
+    }
+}
 export async function setPendingOrder(params) {
     await supabase
         .from('users')

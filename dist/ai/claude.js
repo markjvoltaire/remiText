@@ -112,7 +112,9 @@ Rules:
 - Always resolve relative dates (e.g. "Friday", "tonight", "this Saturday") using today's date before calling search_flights or search_restaurants.
 - Decide whether the user wants a one-way or round-trip flight. If round-trip, collect both departure_date and return_date before calling search_flights.
 - If pending flight options are listed in context below, use them: when the user picks an airline or says first/second/third/fourth/fifth (by position), pick the matching offer_id. Do not ask for dates again if they already gave them or if those options already reflect the trip.
+- If the user's message includes [Context: ...] indicating they replied to a specific preview image, treat that option as their selection — do not ask "which one?"
 - If pending restaurant options are listed in context below, use them: when the user picks a restaurant by name or position, call get_restaurant_availability with the matching venue_id. Do not ask for date or party size again if already known.
+- If the user's message includes [Context: ...] indicating they replied to a specific preview image, treat that option as their selection — do not ask "which one?"
 - Before taking action on a specific flight, restate the exact flight (airline, time, price) and ask ONE question: "HOLD or BOOK?"
 - If the user asks to book or reserve a restaurant table, tell them you can show availability today and full Resy booking is coming soon. Do not attempt to book.
 
@@ -175,9 +177,20 @@ async function attachSearchPreviewCardsSafely(ctx, offers, tag) {
             });
         }));
         let attached = 0;
-        for (const img of images) {
+        for (const [index, img] of images.entries()) {
             if (img) {
-                ctx.attachments.push(img);
+                const offer = offers[index];
+                ctx.attachments.push({
+                    ...img,
+                    ref: offer
+                        ? {
+                            kind: 'flight',
+                            optionIndex: index,
+                            entityId: offer.id,
+                            label: `${offer.slices[0]?.segments[0]?.marketing_carrier_name ?? 'Flight'} ${offer.slices[0]?.segments[0]?.flight_number ?? ''}`.trim(),
+                        }
+                        : undefined,
+                });
                 attached += 1;
             }
         }
@@ -204,9 +217,20 @@ async function attachSearchPreviewRestaurantCardsSafely(ctx, venues, meta, tag) 
             return generateRestaurantCardImage(input);
         }));
         let attached = 0;
-        for (const img of images) {
+        for (const [index, img] of images.entries()) {
             if (img) {
-                ctx.attachments.push(img);
+                const venue = previewVenues[index];
+                ctx.attachments.push({
+                    ...img,
+                    ref: venue
+                        ? {
+                            kind: 'restaurant',
+                            optionIndex: index,
+                            entityId: String(venue.venue_id),
+                            label: venue.name,
+                        }
+                        : undefined,
+                });
                 attached += 1;
             }
         }

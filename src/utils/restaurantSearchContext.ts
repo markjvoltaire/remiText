@@ -55,6 +55,7 @@ export function formatLastRestaurantSearchForPrompt(
     `Latest restaurant search near ${location} on ${date} for ${party_size}${queryPart}:`,
     ...lines,
     'If the user names a restaurant or refers to an option by position (first, second, etc.), pick the matching venue_id for get_restaurant_availability.',
+    'If the user replies to a specific preview image, context in their message will name the venue — use that venue_id.',
     'Do not ask for date or party size again if the user already gave them or if the options above already reflect those.',
     'If the user asks to book or reserve a table, tell them Remi can show availability today and full booking is coming soon — do not attempt to book.',
   ].join('\n');

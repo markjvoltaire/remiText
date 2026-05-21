@@ -3,6 +3,7 @@ import type {
   ConversationMessage,
   LastFlightSearchContext,
   LastRestaurantSearchContext,
+  LastSentPreviewCards,
   UserProfile,
 } from '../types.js';
 import { normalizeContactKey } from '../utils/contactId.js';
@@ -130,6 +131,19 @@ export async function setLastRestaurantSearch(
 
 export async function clearLastRestaurantSearch(userId: string): Promise<void> {
   await supabase.from('users').update({ last_restaurant_search: null }).eq('id', userId);
+}
+
+export async function setLastSentPreviewCards(
+  userId: string,
+  cards: LastSentPreviewCards,
+): Promise<void> {
+  const { error } = await supabase
+    .from('users')
+    .update({ last_sent_preview_cards: cards })
+    .eq('id', userId);
+  if (error) {
+    console.warn(`[supabase] setLastSentPreviewCards failed user=${userId}:`, error.message);
+  }
 }
 
 export async function setPendingOrder(params: {

@@ -66,6 +66,14 @@ export interface LastRestaurantSearchContext {
   search_params: LastRestaurantSearchParams;
 }
 
+/** Tracks the iMessage guid for the most recent preview-card photo stack. */
+export interface LastSentPreviewCards {
+  parentMessageId: string;
+  kind: 'restaurant' | 'flight';
+  optionCount: number;
+  updated_at: string;
+}
+
 export interface UserProfile {
   id: string;
   phone: string;
@@ -83,6 +91,7 @@ export interface UserProfile {
   created_at: string;
   last_flight_search?: LastFlightSearchContext | null;
   last_restaurant_search?: LastRestaurantSearchContext | null;
+  last_sent_preview_cards?: LastSentPreviewCards | null;
   /** Last held order: GET /offers + POST /orders payloads until cleared after payment. */
   pending_duffel_order?: Record<string, unknown> | null;
 }

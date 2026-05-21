@@ -174,3 +174,43 @@ export async function sendPhotoStack(
   const sent = await client.messages.sendMultipart(spaceId, parts);
   return sent.guid;
 }
+
+export interface InboundReplyTarget {
+  guid: string;
+  partIndex?: number;
+}
+
+/**
+ * Resolve which message (and photo-stack part) the user replied to.
+ * Spectrum drops reply metadata on inbound text, so we fetch from Photon when needed.
+ */
+export async function resolveInboundReplyTarget(
+  spaceId: string,
+  messageId: string,
+  extras?: { replyTo?: { messageId: string } },
+): Promise<InboundReplyTarget | null> {
+  if (extras?.replyTo?.messageId) {
+    const childMatch = extras.replyTo.messageId.match(/^p:(\d+)\/(.+)$/);
+    if (childMatch) {
+      return { guid: childMatch[2]!, partIndex: Number(childMatch[1]) };
+    }
+    return { guid: extras.replyTo.messageId };
+  }
+
+  try {
+    const raw = await getClient().messages.get(spaceId, messageId);
+    if (!raw.replyTargetGuid) return null;
+
+    let partIndex: number | undefined;
+    if (raw.threadOriginatorPart !== undefined && raw.threadOriginatorPart !== '') {
+      const parsed = Number.parseInt(raw.threadOriginatorPart, 10);
+      if (Number.isFinite(parsed)) partIndex = parsed;
+    }
+
+    return { guid: raw.replyTargetGuid, partIndex };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[imessage] resolveInboundReplyTarget failed msg=${messageId}: ${msg}`);
+    return null;
+  }
+}

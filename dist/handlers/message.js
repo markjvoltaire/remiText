@@ -1,11 +1,12 @@
 import { attachment } from 'spectrum-ts';
-import { claimMessage, getUserByPhone, getConversationHistory, appendMessage } from '../services/supabase.js';
-import { markRead, sendPhotoStack } from '../services/imessage.js';
+import { claimMessage, getUserByPhone, getConversationHistory, appendMessage, setLastSentPreviewCards, } from '../services/supabase.js';
+import { markRead, sendPhotoStack, resolveInboundReplyTarget } from '../services/imessage.js';
 import { runAgentLoop, isAnthropicCapacityError } from '../ai/claude.js';
 import { getOnboardingSession, startOnboarding, advanceOnboarding } from '../services/onboarding.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { stripMarkdown } from '../utils/stripMarkdown.js';
+import { augmentUserMessageWithReplyContext } from '../utils/replyContext.js';
 function extractText(content) {
     if (typeof content === 'string')
         return content;
@@ -53,10 +54,22 @@ export async function handleMessage(space, message) {
     }
     console.log(`[msg] user=${user.id}`);
     const history = await getConversationHistory(user.id);
-    await appendMessage(user.id, 'user', text);
+    let agentInput = text;
+    const terminalReplyTo = message.replyTo;
+    const replyTarget = await resolveInboundReplyTarget(space.id, id, terminalReplyTo ? { replyTo: terminalReplyTo } : undefined);
+    const previewCards = user.last_sent_preview_cards;
+    if (replyTarget && previewCards && replyTarget.guid === previewCards.parentMessageId) {
+        const partIndex = replyTarget.partIndex ?? 0;
+        const augmented = augmentUserMessageWithReplyContext(text, user, previewCards, partIndex);
+        if (augmented !== text) {
+            console.log(`[msg] reply-to-preview kind=${previewCards.kind} part=${partIndex} parent=${previewCards.parentMessageId}`);
+            agentInput = augmented;
+        }
+    }
+    await appendMessage(user.id, 'user', agentInput);
     let agentResult;
     try {
-        agentResult = await runAgentLoop(text, history, user);
+        agentResult = await runAgentLoop(agentInput, history, user);
     }
     catch (err) {
         const messageText = err instanceof Error ? err.message : String(err);
@@ -72,7 +85,26 @@ export async function handleMessage(space, message) {
     const reply = stripMarkdown(agentResult.text);
     console.log(`[agent] user=${user.id} reply_len=${reply.length} attachments=${agentResult.attachments.length}`);
     await appendMessage(user.id, 'assistant', reply);
-    await sendReplyWithAttachments(space, message, reply, agentResult.attachments);
+    const sendMeta = await sendReplyWithAttachments(space, message, reply, agentResult.attachments);
+    await persistSentPreviewCards(user.id, agentResult.attachments, sendMeta);
+}
+function previewCardsFromAttachments(attachments) {
+    const refs = attachments.map((img) => img.ref).filter((ref) => Boolean(ref));
+    if (refs.length === 0)
+        return null;
+    return { kind: refs[0].kind, optionCount: refs.length };
+}
+async function persistSentPreviewCards(userId, attachments, sendMeta) {
+    const preview = previewCardsFromAttachments(attachments);
+    if (!preview || !sendMeta.parentMessageId)
+        return;
+    await setLastSentPreviewCards(userId, {
+        parentMessageId: sendMeta.parentMessageId,
+        kind: preview.kind,
+        optionCount: preview.optionCount,
+        updated_at: new Date().toISOString(),
+    });
+    console.log(`[preview] stored parent=${sendMeta.parentMessageId} kind=${preview.kind} count=${preview.optionCount}`);
 }
 function isIMessage(platform) {
     return typeof platform === 'string' && platform.toLowerCase() === 'imessage';
@@ -80,7 +112,7 @@ function isIMessage(platform) {
 async function sendReplyWithAttachments(space, message, text, images) {
     if (images.length === 0) {
         await message.reply(text);
-        return;
+        return {};
     }
     if (images.length >= 2 && isIMessage(message.platform)) {
         try {
@@ -89,7 +121,7 @@ async function sendReplyWithAttachments(space, message, text, images) {
                 fileName: `preview-card-${i + 1}.png`,
             })), { text });
             console.log(`[reply] photo-stack sent space=${space.id} parts=${images.length} guid=${guid}`);
-            return;
+            return { parentMessageId: guid };
         }
         catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -103,18 +135,22 @@ async function sendReplyWithAttachments(space, message, text, images) {
     const [first, second, ...rest] = builders;
     if (!first) {
         await message.reply(text);
-        return;
+        return {};
     }
     try {
         if (!second) {
-            await message.reply(first, text);
-            return;
+            const sent = await message.reply(first, text);
+            const firstSent = Array.isArray(sent) ? sent[0] : sent;
+            return { parentMessageId: firstSent?.id };
         }
-        await message.reply(first, second, ...rest, text);
+        const sent = await message.reply(first, second, ...rest, text);
+        const firstSent = Array.isArray(sent) ? sent[0] : sent;
+        return { parentMessageId: firstSent?.id };
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[reply] attachment send failed, falling back to text-only: ${msg}`);
         await message.reply(text);
+        return {};
     }
 }

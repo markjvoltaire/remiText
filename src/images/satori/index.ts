@@ -16,5 +16,16 @@ export {
 } from './fromDuffel.js';
 export { restaurantCardInputFromVenue } from './fromResy.js';
 
+export type PreviewCardRef = {
+  kind: 'restaurant' | 'flight';
+  optionIndex: number;
+  entityId: string;
+  label: string;
+};
+
 /** Shared attachment shape for iMessage preview cards. */
-export type PreviewCardImage = { buffer: Buffer; contentType: 'image/png' };
+export type PreviewCardImage = {
+  buffer: Buffer;
+  contentType: 'image/png';
+  ref?: PreviewCardRef;
+};
