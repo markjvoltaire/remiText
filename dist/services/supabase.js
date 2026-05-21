@@ -83,7 +83,12 @@ export async function clearLastFlightSearch(userId) {
     await supabase.from('users').update({ last_flight_search: null }).eq('id', userId);
 }
 export async function setLastRestaurantSearch(userId, ctx) {
-    await supabase.from('users').update({ last_restaurant_search: ctx }).eq('id', userId);
+    const { error } = await supabase.from('users').update({ last_restaurant_search: ctx }).eq('id', userId);
+    if (error) {
+        console.warn(`[supabase] setLastRestaurantSearch failed user=${userId}:`, error.message);
+        return false;
+    }
+    return true;
 }
 export async function clearLastRestaurantSearch(userId) {
     await supabase.from('users').update({ last_restaurant_search: null }).eq('id', userId);

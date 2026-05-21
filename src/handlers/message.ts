@@ -7,7 +7,7 @@ import { getOnboardingSession, startOnboarding, advanceOnboarding } from '../ser
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { stripMarkdown } from '../utils/stripMarkdown.js';
-import type { FlightCardImage } from '../images/satori/index.js';
+import type { PreviewCardImage } from '../images/satori/index.js';
 
 function extractText(content: unknown): string {
   if (typeof content === 'string') return content;
@@ -103,7 +103,7 @@ async function sendReplyWithAttachments(
   space: Space,
   message: Message,
   text: string,
-  images: FlightCardImage[],
+  images: PreviewCardImage[],
 ): Promise<void> {
   if (images.length === 0) {
     await message.reply(text);
@@ -116,7 +116,7 @@ async function sendReplyWithAttachments(
         space.id,
         images.map((img, i) => ({
           buffer: img.buffer,
-          fileName: `flight-card-${i + 1}.png`,
+          fileName: `preview-card-${i + 1}.png`,
         })),
         { text },
       );
@@ -131,7 +131,7 @@ async function sendReplyWithAttachments(
   const builders = images.map((img, i) =>
     attachment(img.buffer, {
       mimeType: img.contentType,
-      name: images.length === 1 ? 'flight-card.png' : `flight-card-${i + 1}.png`,
+      name: images.length === 1 ? 'preview-card.png' : `preview-card-${i + 1}.png`,
     }),
   );
 

@@ -119,8 +119,13 @@ export async function clearLastFlightSearch(userId: string): Promise<void> {
 export async function setLastRestaurantSearch(
   userId: string,
   ctx: LastRestaurantSearchContext,
-): Promise<void> {
-  await supabase.from('users').update({ last_restaurant_search: ctx }).eq('id', userId);
+): Promise<boolean> {
+  const { error } = await supabase.from('users').update({ last_restaurant_search: ctx }).eq('id', userId);
+  if (error) {
+    console.warn(`[supabase] setLastRestaurantSearch failed user=${userId}:`, error.message);
+    return false;
+  }
+  return true;
 }
 
 export async function clearLastRestaurantSearch(userId: string): Promise<void> {

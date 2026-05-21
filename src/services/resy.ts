@@ -281,6 +281,10 @@ interface ResyVenueRaw {
     price_range?: number;
     rating?: { average?: number; count?: number } | number;
     location?: { address_1?: string; city?: string; state?: string };
+    images?: string[];
+    responsive_images?: { originals?: Record<string, unknown> };
+    venue_template_photo?: string;
+    icon?: string;
   };
   slots?: ResySlotRaw[];
 }
@@ -290,6 +294,36 @@ function extractVenueId(venueData: ResyVenueRaw): number {
   if (typeof id === 'number') return id;
   if (id && typeof id === 'object' && typeof id.resy === 'number') return id.resy;
   return 0;
+}
+
+function asHttpUrl(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.startsWith('http')) return value;
+  if (value && typeof value === 'object' && 'url' in value) {
+    const url = (value as { url?: unknown }).url;
+    if (typeof url === 'string' && url.startsWith('http')) return url;
+  }
+  return undefined;
+}
+
+function pickVenueImageUrl(venue: NonNullable<ResyVenueRaw['venue']>): string | undefined {
+  for (const candidate of venue.images ?? []) {
+    const url = asHttpUrl(candidate);
+    if (url) return url;
+  }
+
+  const originals = venue.responsive_images?.originals;
+  if (originals) {
+    for (const key of ['4:3', '16:9', '1:1']) {
+      const url = asHttpUrl(originals[key]);
+      if (url) return url;
+    }
+    for (const value of Object.values(originals)) {
+      const url = asHttpUrl(value);
+      if (url) return url;
+    }
+  }
+
+  return asHttpUrl(venue.venue_template_photo) ?? asHttpUrl(venue.icon);
 }
 
 function mapVenue(venueData: ResyVenueRaw): RestaurantVenue | null {
@@ -307,7 +341,7 @@ function mapVenue(venueData: ResyVenueRaw): RestaurantVenue | null {
         ? venue.rating
         : undefined;
 
-  const slots = (venueData.slots ?? []).map((slot) => ({
+  const slots = (venueData.slots ?? []).slice(0, 40).map((slot) => ({
     time: formatSlotTime(slot.date?.start ?? ''),
     slot_type: slot.config?.type ?? 'Standard',
     config_token: slot.config?.token ?? '',
@@ -320,6 +354,7 @@ function mapVenue(venueData: ResyVenueRaw): RestaurantVenue | null {
     neighborhood: venue.neighborhood ?? '',
     price_range: venue.price_range ?? 0,
     rating,
+    image_url: pickVenueImageUrl(venue),
     slots,
   };
 }
@@ -393,4 +428,10 @@ export function formatResyError(err: unknown): string {
     return err.message;
   }
   return err instanceof Error ? err.message : String(err);
+}
+
+if (isResyConfigured()) {
+  console.log('[resy] credentials present');
+} else {
+  console.warn('[resy] not configured — set RESY_API_KEY and RESY_AUTH_TOKEN (or email/password)');
 }

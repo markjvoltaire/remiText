@@ -86,7 +86,7 @@ async function sendReplyWithAttachments(space, message, text, images) {
         try {
             const guid = await sendPhotoStack(space.id, images.map((img, i) => ({
                 buffer: img.buffer,
-                fileName: `flight-card-${i + 1}.png`,
+                fileName: `preview-card-${i + 1}.png`,
             })), { text });
             console.log(`[reply] photo-stack sent space=${space.id} parts=${images.length} guid=${guid}`);
             return;
@@ -98,7 +98,7 @@ async function sendReplyWithAttachments(space, message, text, images) {
     }
     const builders = images.map((img, i) => attachment(img.buffer, {
         mimeType: img.contentType,
-        name: images.length === 1 ? 'flight-card.png' : `flight-card-${i + 1}.png`,
+        name: images.length === 1 ? 'preview-card.png' : `preview-card-${i + 1}.png`,
     }));
     const [first, second, ...rest] = builders;
     if (!first) {

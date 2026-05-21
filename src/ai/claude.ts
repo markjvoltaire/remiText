@@ -21,7 +21,7 @@ import {
   sortFlightOffersByPrice,
 } from '../utils/formatFlights.js';
 import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
-import { formatLastRestaurantSearchForPrompt, summarizeVenuesForContext } from '../utils/restaurantSearchContext.js';
+import { formatLastRestaurantSearchForPrompt, summarizeVenuesForContext, slimVenuesForTool } from '../utils/restaurantSearchContext.js';
 import { restaurantsToSMS, restaurantDetailToSMS } from '../utils/formatRestaurants.js';
 import {
   searchRestaurants,
@@ -45,8 +45,10 @@ import { getSharedFriendLocation } from '../services/imessage.js';
 import { nearestAirports } from '../utils/nearestAirport.js';
 import {
   generateFlightCardImage,
+  generateRestaurantCardImage,
   flightCardInputFromHeldOrder,
   flightCardInputFromOffer,
+  restaurantCardInputFromVenue,
   type FlightCardImage,
 } from '../images/satori/index.js';
 import type {
@@ -54,6 +56,7 @@ import type {
   UserProfile,
   HeldOrder,
   FlightOffer,
+  RestaurantVenue,
 } from '../types.js';
 
 const SEARCH_PREVIEW_CARD_LIMIT = Math.max(
@@ -157,7 +160,7 @@ Rules:
 - Keep replies short. Max 3 sentences unless you are pasting a multi-option list from tool output (flights or restaurants).
 - Plain text only: no Markdown, no asterisks (*), no bold/italics markers, no backticks.
 - When search_flights returns a formatted option list, every line block in that list matches one preview image (same count, cheapest-first order). Never shorten or drop options from that list.
-- When search_restaurants returns a formatted list, use it verbatim — do not reformat, paraphrase, or omit options.
+- When search_restaurants returns a formatted list, use it verbatim — do not reformat, paraphrase, or omit options. When preview images are attached, the numbered list in "formatted" must match the image count (same order).
 - Always resolve relative dates (e.g. "Friday", "tonight", "this Saturday") using today's date before calling search_flights or search_restaurants.
 - Decide whether the user wants a one-way or round-trip flight. If round-trip, collect both departure_date and return_date before calling search_flights.
 - If pending flight options are listed in context below, use them: when the user picks an airline or says first/second/third/fourth/fifth (by position), pick the matching offer_id. Do not ask for dates again if they already gave them or if those options already reflect the trip.
@@ -182,7 +185,8 @@ Tool routing:
 
 Output formatting:
 - When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat, paraphrase, or omit options (count must match the number of image cards). Append one follow-up line: "Which one?" or "Want me to book one?"
-- When search_restaurants returns results, use the "formatted" field as your reply verbatim. Append one follow-up line: "Which one?" or "Want times for one?"
+- When search_restaurants returns results with a "formatted" field and no "error", use "formatted" as your reply verbatim. Never say search failed when formatted is present. Append one follow-up line: "Which one?" or "Want times for one?"
+- When search_restaurants returns { error: true, message }, relay the message to the user briefly; do not invent a generic failure if a specific message is provided.
 - When get_restaurant_availability returns results, use the "formatted" field as your reply verbatim.
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
@@ -257,6 +261,43 @@ async function attachSearchPreviewCardsSafely(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[flightCardImage] preview skipped for ${tag}: ${msg}`);
+  }
+}
+
+async function attachSearchPreviewRestaurantCardsSafely(
+  ctx: AgentSessionContext,
+  venues: RestaurantVenue[],
+  meta: { date: string; partySize: number },
+  tag: string,
+): Promise<void> {
+  if (SEARCH_PREVIEW_CARD_LIMIT === 0 || venues.length === 0) return;
+
+  try {
+    const previewVenues = venues.slice(0, SEARCH_PREVIEW_CARD_LIMIT);
+    const images = await Promise.all(
+      previewVenues.map(async (venue, index) => {
+        const input = restaurantCardInputFromVenue(venue, {
+          date: meta.date,
+          partySize: meta.partySize,
+          optionLabel: `Option ${index + 1}`,
+        });
+        return generateRestaurantCardImage(input);
+      }),
+    );
+
+    let attached = 0;
+    for (const img of images) {
+      if (img) {
+        ctx.attachments.push(img);
+        attached += 1;
+      }
+    }
+    if (attached > 0) {
+      console.log(`[restaurantCardImage] attached ${attached} preview(s) for ${tag}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[restaurantCardImage] preview skipped for ${tag}: ${msg}`);
   }
 }
 
@@ -653,23 +694,43 @@ async function executeTool(
     const query = (input.query as string | undefined) || undefined;
 
     try {
-      const venues = await searchRestaurants({ location, date, partySize, query });
+      let venues = await searchRestaurants({ location, date, partySize, query });
+      let queryRelaxed = false;
+      if (venues.length === 0 && query) {
+        venues = await searchRestaurants({ location, date, partySize });
+        queryRelaxed = true;
+      }
+
       const surfaced = venues.slice(0, 5);
-      await setLastRestaurantSearch(user.id, {
+      let formatted = restaurantsToSMS(surfaced, { location, date, partySize });
+      if (queryRelaxed && surfaced.length > 0) {
+        formatted = `No "${query}" matches — open tables nearby:\n\n${formatted}`;
+      }
+
+      const saved = await setLastRestaurantSearch(user.id, {
         venues: summarizeVenuesForContext(surfaced),
         updated_at: new Date().toISOString(),
         search_params: { location, date, party_size: partySize, query },
       });
-      const formatted = restaurantsToSMS(surfaced, { location, date, partySize });
-      return JSON.stringify({ formatted, venues: surfaced });
-    } catch (err) {
-      if (err instanceof ResyNotConfiguredError) {
-        return JSON.stringify({
-          error: true,
-          message: 'Dining search is temporarily unavailable. Try again later.',
-        });
+      if (!saved) {
+        console.warn('[search_restaurants] results ok but last_restaurant_search not persisted (run Supabase migration?)');
       }
-      return JSON.stringify({ error: true, message: formatResyError(err) });
+
+      await attachSearchPreviewRestaurantCardsSafely(
+        ctx,
+        surfaced,
+        { date, partySize },
+        `search:${location}-${date}`,
+      );
+
+      return JSON.stringify({ formatted, venues: slimVenuesForTool(surfaced) });
+    } catch (err) {
+      const message =
+        err instanceof ResyNotConfiguredError
+          ? 'Dining search is temporarily unavailable. Try again later.'
+          : formatResyError(err);
+      console.error(`[search_restaurants] ${message}`);
+      return JSON.stringify({ error: true, message });
     }
   }
 

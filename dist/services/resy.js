@@ -246,6 +246,37 @@ function extractVenueId(venueData) {
         return id.resy;
     return 0;
 }
+function asHttpUrl(value) {
+    if (typeof value === 'string' && value.startsWith('http'))
+        return value;
+    if (value && typeof value === 'object' && 'url' in value) {
+        const url = value.url;
+        if (typeof url === 'string' && url.startsWith('http'))
+            return url;
+    }
+    return undefined;
+}
+function pickVenueImageUrl(venue) {
+    for (const candidate of venue.images ?? []) {
+        const url = asHttpUrl(candidate);
+        if (url)
+            return url;
+    }
+    const originals = venue.responsive_images?.originals;
+    if (originals) {
+        for (const key of ['4:3', '16:9', '1:1']) {
+            const url = asHttpUrl(originals[key]);
+            if (url)
+                return url;
+        }
+        for (const value of Object.values(originals)) {
+            const url = asHttpUrl(value);
+            if (url)
+                return url;
+        }
+    }
+    return asHttpUrl(venue.venue_template_photo) ?? asHttpUrl(venue.icon);
+}
 function mapVenue(venueData) {
     const venue = venueData.venue;
     if (!venue?.name)
@@ -259,7 +290,7 @@ function mapVenue(venueData) {
         : typeof venue.rating === 'number'
             ? venue.rating
             : undefined;
-    const slots = (venueData.slots ?? []).map((slot) => ({
+    const slots = (venueData.slots ?? []).slice(0, 40).map((slot) => ({
         time: formatSlotTime(slot.date?.start ?? ''),
         slot_type: slot.config?.type ?? 'Standard',
         config_token: slot.config?.token ?? '',
@@ -271,6 +302,7 @@ function mapVenue(venueData) {
         neighborhood: venue.neighborhood ?? '',
         price_range: venue.price_range ?? 0,
         rating,
+        image_url: pickVenueImageUrl(venue),
         slots,
     };
 }
@@ -331,4 +363,10 @@ export function formatResyError(err) {
         return err.message;
     }
     return err instanceof Error ? err.message : String(err);
+}
+if (isResyConfigured()) {
+    console.log('[resy] credentials present');
+}
+else {
+    console.warn('[resy] not configured — set RESY_API_KEY and RESY_AUTH_TOKEN (or email/password)');
 }

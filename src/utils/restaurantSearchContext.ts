@@ -22,6 +22,18 @@ export function summarizeVenuesForContext(venues: RestaurantVenue[]): PendingRes
   }));
 }
 
+/** Compact shape for Claude tool results (no booking tokens). */
+export function slimVenuesForTool(venues: RestaurantVenue[]) {
+  return venues.map((v) => ({
+    venue_id: v.venue_id,
+    name: v.name,
+    cuisine: v.cuisine,
+    neighborhood: v.neighborhood,
+    price_range: v.price_range,
+    slots: v.slots.slice(0, 5).map((s) => ({ time: s.time, slot_type: s.slot_type })),
+  }));
+}
+
 export function formatLastRestaurantSearchForPrompt(
   ctx: LastRestaurantSearchContext | null | undefined,
 ): string {

@@ -39,6 +39,7 @@ export interface RestaurantVenue {
   neighborhood: string;
   price_range: number;
   rating?: number;
+  image_url?: string;
   slots: RestaurantSlotSummary[];
 }
 
