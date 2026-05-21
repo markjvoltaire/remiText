@@ -237,18 +237,23 @@ async function attachSearchPreviewCardsSafely(
   if (SEARCH_PREVIEW_CARD_LIMIT === 0 || offers.length === 0) return;
 
   try {
-    const images = await Promise.all(
-      offers.map(async (offer, index) => {
-        const allIn = computeAllInPrice(offer.total_amount, offer.total_currency);
-        const price = formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency);
-        const input = flightCardInputFromOffer(offer, price);
-        if (!input) return null;
-        return generateFlightCardImage({
-          ...input,
-          optionLabel: `Option ${index + 1}`,
-        });
-      }),
-    );
+    // Render sequentially to keep peak memory low (each Satori+Resvg pass holds
+    // ~50-100MB of bitmap state; Render's 512MB instances OOM at 5x parallel).
+    const images: Array<Awaited<ReturnType<typeof generateFlightCardImage>>> = [];
+    for (const [index, offer] of offers.entries()) {
+      const allIn = computeAllInPrice(offer.total_amount, offer.total_currency);
+      const price = formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency);
+      const input = flightCardInputFromOffer(offer, price);
+      if (!input) {
+        images.push(null);
+        continue;
+      }
+      const img = await generateFlightCardImage({
+        ...input,
+        optionLabel: `Option ${index + 1}`,
+      });
+      images.push(img);
+    }
 
     let attached = 0;
     for (const [index, img] of images.entries()) {
@@ -287,16 +292,16 @@ async function attachSearchPreviewRestaurantCardsSafely(
 
   try {
     const previewVenues = venues.slice(0, SEARCH_PREVIEW_CARD_LIMIT);
-    const images = await Promise.all(
-      previewVenues.map(async (venue, index) => {
-        const input = restaurantCardInputFromVenue(venue, {
-          date: meta.date,
-          partySize: meta.partySize,
-          optionLabel: `Option ${index + 1}`,
-        });
-        return generateRestaurantCardImage(input);
-      }),
-    );
+    const images: Array<Awaited<ReturnType<typeof generateRestaurantCardImage>>> = [];
+    for (const [index, venue] of previewVenues.entries()) {
+      const input = restaurantCardInputFromVenue(venue, {
+        date: meta.date,
+        partySize: meta.partySize,
+        optionLabel: `Option ${index + 1}`,
+      });
+      const img = await generateRestaurantCardImage(input);
+      images.push(img);
+    }
 
     let attached = 0;
     for (const [index, img] of images.entries()) {

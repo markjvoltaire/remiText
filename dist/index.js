@@ -1,5 +1,11 @@
 import 'dotenv/config';
 import http from 'node:http';
+process.on('uncaughtException', (err) => {
+    console.error('[fatal] uncaughtException:', err);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('[fatal] unhandledRejection:', reason);
+});
 import { Spectrum } from 'spectrum-ts';
 import { imessage } from 'spectrum-ts/providers/imessage';
 import { terminal } from 'spectrum-ts/providers/terminal';
