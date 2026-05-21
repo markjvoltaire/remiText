@@ -26,6 +26,45 @@ export interface LastFlightSearchContext {
   duffel_raw_offer_request?: Record<string, unknown>;
 }
 
+export interface RestaurantSlotSummary {
+  time: string;
+  slot_type: string;
+  config_token: string;
+}
+
+export interface RestaurantVenue {
+  venue_id: number;
+  name: string;
+  cuisine: string;
+  neighborhood: string;
+  price_range: number;
+  rating?: number;
+  slots: RestaurantSlotSummary[];
+}
+
+export interface PendingRestaurantSummary {
+  venue_id: number;
+  name: string;
+  cuisine: string;
+  neighborhood: string;
+  price_range: number;
+  rating?: number;
+  slots: RestaurantSlotSummary[];
+}
+
+export interface LastRestaurantSearchParams {
+  location: string;
+  date: string;
+  party_size: number;
+  query?: string;
+}
+
+export interface LastRestaurantSearchContext {
+  venues: PendingRestaurantSummary[];
+  updated_at: string;
+  search_params: LastRestaurantSearchParams;
+}
+
 export interface UserProfile {
   id: string;
   phone: string;
@@ -42,6 +81,7 @@ export interface UserProfile {
   pending_booking_reference?: string | null;
   created_at: string;
   last_flight_search?: LastFlightSearchContext | null;
+  last_restaurant_search?: LastRestaurantSearchContext | null;
   /** Last held order: GET /offers + POST /orders payloads until cleared after payment. */
   pending_duffel_order?: Record<string, unknown> | null;
 }

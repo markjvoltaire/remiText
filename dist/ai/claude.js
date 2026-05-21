@@ -4,8 +4,11 @@ import { searchFlights, holdOrder, bookOrderInstant, getOfferPricing, payForOrde
 import { chargeViaSPT, refundPaymentIntent, isStripeConfigurationError } from '../services/stripe.js';
 import { offersToSMS, formatHeldOrderConfirmationSMS, sortFlightOffersByPrice, } from '../utils/formatFlights.js';
 import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
-import { computeAllInPrice, formatMoneyFromCents } from '../utils/pricing.js';
-import { setLastFlightSearch, clearLastFlightSearch, setPendingOrder, clearPendingOrder, } from '../services/supabase.js';
+import { formatLastRestaurantSearchForPrompt, summarizeVenuesForContext } from '../utils/restaurantSearchContext.js';
+import { restaurantsToSMS, restaurantDetailToSMS } from '../utils/formatRestaurants.js';
+import { searchRestaurants, getRestaurantAvailability, isResyConfigured, formatResyError, ResyNotConfiguredError, } from '../services/resy.js';
+import { computeAllInPrice, formatMoneyFromCents, logPriceBreakdown } from '../utils/pricing.js';
+import { setLastFlightSearch, clearLastFlightSearch, setLastRestaurantSearch, setPendingOrder, clearPendingOrder, } from '../services/supabase.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
@@ -97,18 +100,21 @@ async function createMessageWithRetries(params) {
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
-const SYSTEM_PROMPT = `You are Remi, a friendly AI travel concierge that books flights via SMS. Be concise — every response is an SMS.
+const SYSTEM_PROMPT = `You are Remi, a friendly AI travel and dining concierge over SMS. You help with flights and restaurant availability. Be concise — every response is an SMS.
 
 Today's date is ${new Date().toISOString().split('T')[0]}.
 
 Rules:
-- Keep replies short. Max 3 sentences unless you are pasting a multi-option flight list from tool output.
+- Keep replies short. Max 3 sentences unless you are pasting a multi-option list from tool output (flights or restaurants).
 - Plain text only: no Markdown, no asterisks (*), no bold/italics markers, no backticks.
 - When search_flights returns a formatted option list, every line block in that list matches one preview image (same count, cheapest-first order). Never shorten or drop options from that list.
-- Always resolve relative dates (e.g. "Friday", "next week") using today's date before calling search_flights.
+- When search_restaurants returns a formatted list, use it verbatim — do not reformat, paraphrase, or omit options.
+- Always resolve relative dates (e.g. "Friday", "tonight", "this Saturday") using today's date before calling search_flights or search_restaurants.
 - Decide whether the user wants a one-way or round-trip flight. If round-trip, collect both departure_date and return_date before calling search_flights.
 - If pending flight options are listed in context below, use them: when the user picks an airline or says first/second/third/fourth/fifth (by position), pick the matching offer_id. Do not ask for dates again if they already gave them or if those options already reflect the trip.
+- If pending restaurant options are listed in context below, use them: when the user picks a restaurant by name or position, call get_restaurant_availability with the matching venue_id. Do not ask for date or party size again if already known.
 - Before taking action on a specific flight, restate the exact flight (airline, time, price) and ask ONE question: "HOLD or BOOK?"
+- If the user asks to book or reserve a restaurant table, tell them you can show availability today and full Resy booking is coming soon. Do not attempt to book.
 
 Intent recognition (only after you have just asked "HOLD or BOOK?" on a specific flight):
 - BOOK intent (call book_flight with the matching offer_id): "BOOK", "book it", "book please", "please book", "get it", "buy it", "purchase", "lock it in", "do it", "go ahead", "yes", "yep", "yeah", "sure", "ok", "okay", "let's go", "confirm".
@@ -117,16 +123,22 @@ Intent recognition (only after you have just asked "HOLD or BOOK?" on a specific
 - If a bare affirmative arrives without a recent "HOLD or BOOK?" question on a specific flight, do not call any tool — ask one clarifying question.
 
 Tool routing:
+- Flight requests → search_flights, hold_flight, book_flight, confirm_booking as appropriate.
+- Restaurant / table / dinner availability → search_restaurants. If location is missing, call get_user_location first when they may have shared Find My location; derive a city from coordinates or ask which city.
+- User picks a restaurant from results → get_restaurant_availability with venue_id from the latest search.
 - BOOK intent → book_flight (charges the user and creates the order in one step; works for any carrier, including Frontier and other instant-payment airlines).
 - HOLD intent → hold_flight. If hold_flight returns { error: true, instant_only: true }, tell the user this airline requires instant payment and ask if they want to BOOK now; on BOOK affirmative call book_flight.
 - For book_flight / hold_flight, always use an offer_id from the "offers" array in the latest search (or the pending options list in context). Never invent flights, prices, or flight numbers.
+- For get_restaurant_availability, always use a venue_id from the latest search_restaurants (or pending restaurant list in context). Never invent venue IDs.
 
 Output formatting:
 - When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat, paraphrase, or omit options (count must match the number of image cards). Append one follow-up line: "Which one?" or "Want me to book one?"
+- When search_restaurants returns results, use the "formatted" field as your reply verbatim. Append one follow-up line: "Which one?" or "Want times for one?"
+- When get_restaurant_availability returns results, use the "formatted" field as your reply verbatim.
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
 - Format prices as "$X" not "$X.XX" unless cents matter.
-- If a user's request is ambiguous (e.g. no origin city), call get_user_location first when they may have shared Find My location with Remi. If location is available, use the nearest airport as origin. If not_sharing, ask where they are flying from and mention they can share location with Remi in Find My (People → Share My Location). If no_coordinates yet, ask for their departure city or airport. If multiple nearby airports are returned, ask which one.`;
+- If a user's flight request is ambiguous (e.g. no origin city), call get_user_location first when they may have shared Find My location with Remi. If location is available, use the nearest airport as origin. If not_sharing, ask where they are flying from and mention they can share location with Remi in Find My (People → Share My Location). If no_coordinates yet, ask for their departure city or airport. If multiple nearby airports are returned, ask which one.`;
 async function attachFlightCardSafely(ctx, order, formattedPrice, tag) {
     try {
         const input = flightCardInputFromHeldOrder(order, formattedPrice);
@@ -287,6 +299,11 @@ async function executeTool(toolName, input, user, ctx) {
         const airline = outSeg?.marketing_carrier_name ?? 'Airline';
         const allIn = computeAllInPrice(order.total_amount, order.total_currency);
         const price = formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency);
+        logPriceBreakdown('hold', allIn, {
+            offer_id: offerId,
+            order_id: order.id,
+            booking_reference: order.booking_reference,
+        });
         const confirmation = formatHeldOrderConfirmationSMS({
             from,
             to,
@@ -370,6 +387,7 @@ async function executeTool(toolName, input, user, ctx) {
         const currency = pricing.currency.toLowerCase();
         const allIn = computeAllInPrice(amountStr, currency);
         const amountInCents = allIn.chargeAmountCents;
+        logPriceBreakdown('book', allIn, { offer_id: offerId, user_id: user.id });
         let paymentIntentId;
         try {
             paymentIntentId = await chargeViaSPT(user.stripe_spt_id, amountInCents, currency, user.stripe_customer_id);
@@ -486,6 +504,10 @@ async function executeTool(toolName, input, user, ctx) {
         }
         const allIn = computeAllInPrice(amountStr, currency);
         const amountInCents = allIn.chargeAmountCents;
+        logPriceBreakdown('confirm_booking', allIn, {
+            order_id: orderId,
+            user_id: user.id,
+        });
         try {
             await chargeViaSPT(user.stripe_spt_id, amountInCents, currency, user.stripe_customer_id);
         }
@@ -502,13 +524,92 @@ async function executeTool(toolName, input, user, ctx) {
         await clearPendingOrder(user.id);
         return JSON.stringify({ success: true, message: 'Payment processed and booking confirmed.' });
     }
+    if (toolName === 'search_restaurants') {
+        if (!isResyConfigured()) {
+            return JSON.stringify({
+                error: true,
+                message: 'Dining search is temporarily unavailable. Try again later.',
+            });
+        }
+        const location = input.location;
+        const date = input.date;
+        const partySize = input.party_size ?? 2;
+        const query = input.query || undefined;
+        try {
+            const venues = await searchRestaurants({ location, date, partySize, query });
+            const surfaced = venues.slice(0, 5);
+            await setLastRestaurantSearch(user.id, {
+                venues: summarizeVenuesForContext(surfaced),
+                updated_at: new Date().toISOString(),
+                search_params: { location, date, party_size: partySize, query },
+            });
+            const formatted = restaurantsToSMS(surfaced, { location, date, partySize });
+            return JSON.stringify({ formatted, venues: surfaced });
+        }
+        catch (err) {
+            if (err instanceof ResyNotConfiguredError) {
+                return JSON.stringify({
+                    error: true,
+                    message: 'Dining search is temporarily unavailable. Try again later.',
+                });
+            }
+            return JSON.stringify({ error: true, message: formatResyError(err) });
+        }
+    }
+    if (toolName === 'get_restaurant_availability') {
+        if (!isResyConfigured()) {
+            return JSON.stringify({
+                error: true,
+                message: 'Dining search is temporarily unavailable. Try again later.',
+            });
+        }
+        const venueId = input.venue_id;
+        const partySize = input.party_size ?? 2;
+        const allowedIds = user.last_restaurant_search?.venues?.map((v) => v.venue_id) ?? [];
+        const searchParams = user.last_restaurant_search?.search_params;
+        const date = input.date || searchParams?.date;
+        if (!date) {
+            return JSON.stringify({
+                error: true,
+                message: 'Missing date. Call search_restaurants first or provide a date in YYYY-MM-DD format.',
+            });
+        }
+        if (allowedIds.length > 0 && !allowedIds.includes(venueId)) {
+            return JSON.stringify({
+                error: true,
+                message: 'That venue_id is not in the latest search. Call search_restaurants again, then get_restaurant_availability only with a venue_id from the new results.',
+            });
+        }
+        try {
+            const venue = await getRestaurantAvailability({ venueId, date, partySize });
+            if (!venue) {
+                return JSON.stringify({
+                    error: true,
+                    message: `No availability found for venue ${venueId} on ${date} for ${partySize}.`,
+                });
+            }
+            const formatted = restaurantDetailToSMS(venue);
+            return JSON.stringify({ formatted, venue });
+        }
+        catch (err) {
+            if (err instanceof ResyNotConfiguredError) {
+                return JSON.stringify({
+                    error: true,
+                    message: 'Dining search is temporarily unavailable. Try again later.',
+                });
+            }
+            return JSON.stringify({ error: true, message: formatResyError(err) });
+        }
+    }
     throw new Error(`Unknown tool: ${toolName}`);
 }
 export async function runAgentLoop(userMessage, history, user) {
-    const pending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
+    const flightPending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
+    const restaurantPending = formatLastRestaurantSearchForPrompt(user.last_restaurant_search ?? undefined);
+    const contextParts = [flightPending, restaurantPending].filter(Boolean);
     const todayISO = new Date().toISOString().split('T')[0];
     const resolved = resolveRelativeDates(userMessage, todayISO);
-    const systemBase = pending ? `${SYSTEM_PROMPT}\n\n${pending}` : SYSTEM_PROMPT;
+    const systemBase = contextParts.length ? `${SYSTEM_PROMPT}\n\n${contextParts.join('\n\n')}` : SYSTEM_PROMPT;
     const system = resolved.changed
         ? `${systemBase}\n\nRelative date resolution: Interpret the user's last message as: "${resolved.resolvedText}".`
         : systemBase;

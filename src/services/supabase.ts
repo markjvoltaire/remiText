@@ -1,5 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
-import type { ConversationMessage, LastFlightSearchContext, UserProfile } from '../types.js';
+import type {
+  ConversationMessage,
+  LastFlightSearchContext,
+  LastRestaurantSearchContext,
+  UserProfile,
+} from '../types.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 
 console.log('[supabase] connecting to', process.env.SUPABASE_URL);
@@ -109,6 +114,17 @@ export async function setLastFlightSearch(
 
 export async function clearLastFlightSearch(userId: string): Promise<void> {
   await supabase.from('users').update({ last_flight_search: null }).eq('id', userId);
+}
+
+export async function setLastRestaurantSearch(
+  userId: string,
+  ctx: LastRestaurantSearchContext,
+): Promise<void> {
+  await supabase.from('users').update({ last_restaurant_search: ctx }).eq('id', userId);
+}
+
+export async function clearLastRestaurantSearch(userId: string): Promise<void> {
+  await supabase.from('users').update({ last_restaurant_search: null }).eq('id', userId);
 }
 
 export async function setPendingOrder(params: {

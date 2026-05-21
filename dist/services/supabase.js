@@ -82,6 +82,12 @@ export async function setLastFlightSearch(userId, ctx) {
 export async function clearLastFlightSearch(userId) {
     await supabase.from('users').update({ last_flight_search: null }).eq('id', userId);
 }
+export async function setLastRestaurantSearch(userId, ctx) {
+    await supabase.from('users').update({ last_restaurant_search: ctx }).eq('id', userId);
+}
+export async function clearLastRestaurantSearch(userId) {
+    await supabase.from('users').update({ last_restaurant_search: null }).eq('id', userId);
+}
 export async function setPendingOrder(params) {
     await supabase
         .from('users')

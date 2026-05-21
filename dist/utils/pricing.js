@@ -29,8 +29,10 @@ export function computeAllInPrice(duffelAmount, currency) {
     const ccy = (currency || 'usd').toLowerCase();
     const duffelAmountCents = parseAmountToCents(duffelAmount);
     const mode = (process.env.REMI_PRICING_MODE ?? 'ota').toLowerCase();
+    const pricingMode = mode === 'markup' ? 'markup' : 'ota';
     let chargeAmountCents;
-    if (mode === 'markup') {
+    let preRoundChargeCents;
+    if (pricingMode === 'markup') {
         const flat = getMarkupFlatCents();
         const pct = getMarkupPercent();
         const pctCents = Math.round(duffelAmountCents * pct);
@@ -44,12 +46,42 @@ export function computeAllInPrice(duffelAmount, currency) {
         const pctPrice = Math.ceil(duffelAmountCents * (1 + pctSafe));
         const minPrice = duffelAmountCents + minSafe;
         chargeAmountCents = Math.max(pctPrice, minPrice);
+        preRoundChargeCents = chargeAmountCents;
         const round = (process.env.REMI_ROUND_TO_DOLLAR ?? 'true').toLowerCase();
         if (round !== 'false' && round !== '0' && round !== 'no') {
             chargeAmountCents = roundUpToDollar(chargeAmountCents);
         }
     }
-    return { duffelAmountCents, chargeAmountCents, currency: ccy };
+    return {
+        duffelAmountCents,
+        chargeAmountCents,
+        currency: ccy,
+        markupCents: chargeAmountCents - duffelAmountCents,
+        pricingMode,
+        preRoundChargeCents: preRoundChargeCents != null && preRoundChargeCents !== chargeAmountCents
+            ? preRoundChargeCents
+            : undefined,
+    };
+}
+/** Structured price breakdown for Render/host logs. */
+export function logPriceBreakdown(context, allIn, meta) {
+    const payload = {
+        context,
+        pricing_mode: allIn.pricingMode,
+        duffel: formatMoneyFromCents(allIn.duffelAmountCents, allIn.currency),
+        remi_markup: formatMoneyFromCents(allIn.markupCents, allIn.currency),
+        customer_charge: formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency),
+        duffel_cents: allIn.duffelAmountCents,
+        markup_cents: allIn.markupCents,
+        charge_cents: allIn.chargeAmountCents,
+        currency: allIn.currency,
+        ...meta,
+    };
+    if (allIn.preRoundChargeCents != null) {
+        payload.pre_round_charge = formatMoneyFromCents(allIn.preRoundChargeCents, allIn.currency);
+        payload.round_up_cents = allIn.chargeAmountCents - allIn.preRoundChargeCents;
+    }
+    console.log('[pricing]', JSON.stringify(payload));
 }
 export function formatMoneyFromCents(amountCents, currency) {
     const ccy = (currency || 'usd').toLowerCase();

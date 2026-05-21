@@ -101,4 +101,54 @@ export const tools: Anthropic.Tool[] = [
       required: [],
     },
   },
+  {
+    name: 'search_restaurants',
+    description:
+      'Search Resy for restaurants with open reservation times. Call when the user asks for a table, dinner spot, or restaurant availability. Returns a formatted list of venues with time slots.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        location: {
+          type: 'string',
+          description: 'City or neighborhood, e.g. "Manhattan", "West Village", "Miami"',
+        },
+        date: {
+          type: 'string',
+          description: 'Reservation date in YYYY-MM-DD format (resolve relative dates first)',
+        },
+        party_size: {
+          type: 'number',
+          description: 'Number of guests. Defaults to 2.',
+        },
+        query: {
+          type: 'string',
+          description: 'Optional filter by restaurant name or cuisine, e.g. "italian", "sushi"',
+        },
+      },
+      required: ['location', 'date'],
+    },
+  },
+  {
+    name: 'get_restaurant_availability',
+    description:
+      'Get full availability for one restaurant from the latest search. Call when the user picks a venue by name or position (first, second, etc.) from search_restaurants results.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        venue_id: {
+          type: 'number',
+          description: 'Resy venue ID from the latest search_restaurants results',
+        },
+        date: {
+          type: 'string',
+          description: 'Reservation date in YYYY-MM-DD format',
+        },
+        party_size: {
+          type: 'number',
+          description: 'Number of guests. Defaults to 2.',
+        },
+      },
+      required: ['venue_id', 'date'],
+    },
+  },
 ];

@@ -2,6 +2,11 @@ export interface AllInPrice {
   duffelAmountCents: number;
   chargeAmountCents: number;
   currency: string; // lower-case (e.g. "usd")
+  /** Customer charge minus Duffel supplier fare (includes round-up cents). */
+  markupCents: number;
+  pricingMode: 'ota' | 'markup';
+  /** Charge before REMI_ROUND_TO_DOLLAR, when rounding changed the total. */
+  preRoundChargeCents?: number;
 }
 
 function parseAmountToCents(amount: string): number {
@@ -38,8 +43,11 @@ export function computeAllInPrice(duffelAmount: string, currency: string): AllIn
   const duffelAmountCents = parseAmountToCents(duffelAmount);
   const mode = (process.env.REMI_PRICING_MODE ?? 'ota').toLowerCase();
 
+  const pricingMode: AllInPrice['pricingMode'] = mode === 'markup' ? 'markup' : 'ota';
   let chargeAmountCents: number;
-  if (mode === 'markup') {
+  let preRoundChargeCents: number | undefined;
+
+  if (pricingMode === 'markup') {
     const flat = getMarkupFlatCents();
     const pct = getMarkupPercent();
     const pctCents = Math.round(duffelAmountCents * pct);
@@ -53,6 +61,7 @@ export function computeAllInPrice(duffelAmount: string, currency: string): AllIn
     const pctPrice = Math.ceil(duffelAmountCents * (1 + pctSafe));
     const minPrice = duffelAmountCents + minSafe;
     chargeAmountCents = Math.max(pctPrice, minPrice);
+    preRoundChargeCents = chargeAmountCents;
 
     const round = (process.env.REMI_ROUND_TO_DOLLAR ?? 'true').toLowerCase();
     if (round !== 'false' && round !== '0' && round !== 'no') {
@@ -60,7 +69,44 @@ export function computeAllInPrice(duffelAmount: string, currency: string): AllIn
     }
   }
 
-  return { duffelAmountCents, chargeAmountCents, currency: ccy };
+  return {
+    duffelAmountCents,
+    chargeAmountCents,
+    currency: ccy,
+    markupCents: chargeAmountCents - duffelAmountCents,
+    pricingMode,
+    preRoundChargeCents:
+      preRoundChargeCents != null && preRoundChargeCents !== chargeAmountCents
+        ? preRoundChargeCents
+        : undefined,
+  };
+}
+
+/** Structured price breakdown for Render/host logs. */
+export function logPriceBreakdown(
+  context: string,
+  allIn: AllInPrice,
+  meta?: Record<string, unknown>,
+): void {
+  const payload: Record<string, unknown> = {
+    context,
+    pricing_mode: allIn.pricingMode,
+    duffel: formatMoneyFromCents(allIn.duffelAmountCents, allIn.currency),
+    remi_markup: formatMoneyFromCents(allIn.markupCents, allIn.currency),
+    customer_charge: formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency),
+    duffel_cents: allIn.duffelAmountCents,
+    markup_cents: allIn.markupCents,
+    charge_cents: allIn.chargeAmountCents,
+    currency: allIn.currency,
+    ...meta,
+  };
+
+  if (allIn.preRoundChargeCents != null) {
+    payload.pre_round_charge = formatMoneyFromCents(allIn.preRoundChargeCents, allIn.currency);
+    payload.round_up_cents = allIn.chargeAmountCents - allIn.preRoundChargeCents;
+  }
+
+  console.log('[pricing]', JSON.stringify(payload));
 }
 
 export function formatMoneyFromCents(amountCents: number, currency: string): string {

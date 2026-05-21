@@ -1,4 +1,5 @@
 import { Duffel } from '@duffel/api';
+import { computeAllInPrice, logPriceBreakdown } from '../utils/pricing.js';
 function getDuffelApiKey() {
     const isProd = process.env.NODE_ENV === 'production';
     const key = isProd ? process.env.DUFFEL_API_KEY_PROD : process.env.DUFFEL_API_KEY;
@@ -69,26 +70,32 @@ export async function searchFlights(params) {
     const rawOfferRequest = serializeDuffelData(data);
     logDuffelPayload('POST /air/offer_requests data', rawOfferRequest);
     const offers = (data.offers ?? []).slice(0, 5);
-    const mapped = offers.map((o) => ({
-        id: o.id,
-        total_amount: o.total_amount,
-        total_currency: o.total_currency,
-        expires_at: o.expires_at,
-        slices: o.slices.map((s) => ({
-            origin: s.origin.iata_code ?? '',
-            destination: s.destination.iata_code ?? '',
-            departure_date: s.segments[0]?.departing_at?.split('T')[0] ?? params.departure_date,
-            segments: s.segments.map((seg) => ({
-                departing_at: seg.departing_at,
-                arriving_at: seg.arriving_at,
-                marketing_carrier_name: seg.marketing_carrier.name,
-                marketing_carrier_logo_lockup_url: seg.marketing_carrier.logo_lockup_url ?? undefined,
-                flight_number: `${seg.marketing_carrier.iata_code}${seg.marketing_carrier_flight_number}`,
-                origin: { iata_code: seg.origin.iata_code ?? '' },
-                destination: { iata_code: seg.destination.iata_code ?? '' },
+    const mapped = offers.map((o) => {
+        const offer = {
+            id: o.id,
+            total_amount: o.total_amount,
+            total_currency: o.total_currency,
+            expires_at: o.expires_at,
+            slices: o.slices.map((s) => ({
+                origin: s.origin.iata_code ?? '',
+                destination: s.destination.iata_code ?? '',
+                departure_date: s.segments[0]?.departing_at?.split('T')[0] ?? params.departure_date,
+                segments: s.segments.map((seg) => ({
+                    departing_at: seg.departing_at,
+                    arriving_at: seg.arriving_at,
+                    marketing_carrier_name: seg.marketing_carrier.name,
+                    marketing_carrier_logo_lockup_url: seg.marketing_carrier.logo_lockup_url ?? undefined,
+                    flight_number: `${seg.marketing_carrier.iata_code}${seg.marketing_carrier_flight_number}`,
+                    origin: { iata_code: seg.origin.iata_code ?? '' },
+                    destination: { iata_code: seg.destination.iata_code ?? '' },
+                })),
             })),
-        })),
-    }));
+        };
+        logPriceBreakdown('search', computeAllInPrice(offer.total_amount, offer.total_currency), {
+            offer_id: offer.id,
+        });
+        return offer;
+    });
     return { offers: mapped, rawOfferRequest };
 }
 async function fetchOfferDetails(offerId) {
