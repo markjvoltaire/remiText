@@ -124,6 +124,13 @@ Intent recognition (only after you have just asked "HOLD or BOOK?" on a specific
 - Negative ("no", "not yet", "wait", "cancel", "nevermind"): do not call any tool. Ask what they want.
 - If a bare affirmative arrives without a recent "HOLD or BOOK?" question on a specific flight, do not call any tool — ask one clarifying question.
 
+Tool calling discipline (IMPORTANT):
+- Make AT MOST ONE tool call per user turn. Never call the same tool twice in one turn.
+- Do not call search_restaurants more than once per turn. Pick exactly one cuisine/query and one date. If the user gave a cuisine (e.g. "sushi"), use only that — do not also search a backup cuisine.
+- Do not call search_flights more than once per turn. Pick exactly one origin/destination/date combo.
+- If you are unsure which date or city to use, ASK the user instead of calling the tool with a guess.
+- Never make speculative parallel tool calls "in case the first returns nothing".
+
 Tool routing:
 - Flight requests → search_flights, hold_flight, book_flight, confirm_booking as appropriate.
 - Restaurant / table / dinner availability → search_restaurants. If location is missing, call get_user_location first when they may have shared Find My location; derive a city from coordinates or ask which city.
@@ -696,6 +703,7 @@ export async function runAgentLoop(userMessage, history, user) {
             max_tokens: 1024,
             system,
             tools,
+            tool_choice: { type: 'auto', disable_parallel_tool_use: true },
             messages,
         });
         if (response.stop_reason === 'end_turn') {
