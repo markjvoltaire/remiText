@@ -52,11 +52,11 @@ export function formatLastRestaurantSearchForPrompt(
   });
 
   return [
-    `Latest restaurant search near ${location} on ${date} for ${party_size}${queryPart}:`,
+    `Prior restaurant search context (location="${location}", date=${date}, party_size=${party_size}${queryPart}):`,
     ...lines,
-    'If the user names a restaurant or refers to an option by position (first, second, etc.), pick the matching venue_id for get_restaurant_availability.',
-    'If the user replies to a specific preview image, context in their message will name the venue — use that venue_id.',
-    'Do not ask for date or party size again if the user already gave them or if the options above already reflect those.',
+    'USE THIS CONTEXT ONLY when the user is picking a venue from the list above (by name, position like "first/second", or by replying to a preview image).',
+    'DO NOT reuse this list as a reply if the user is asking for a NEW search — for example a different cuisine, neighborhood, date, party size, or city. In that case you MUST call search_restaurants with the new parameters.',
+    'NEVER relabel these venues as a different cuisine or different date than the parameters above. If the user asks for sushi and the cached list is not sushi, call search_restaurants again.',
     'If the user asks to book or reserve a table, tell them Remi can show availability today and full booking is coming soon — do not attempt to book.',
   ].join('\n');
 }
