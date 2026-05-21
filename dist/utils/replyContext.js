@@ -9,10 +9,17 @@ export function parseChildMessageId(messageId) {
         return null;
     return { partIndex: Number(match[1]), parentGuid: match[2] };
 }
-export function buildPreviewReplyContext(user, preview, partIndex) {
-    if (partIndex < 0 || partIndex >= preview.optionCount)
+export function inferPreviewKind(user, partIndex) {
+    if (user.last_restaurant_search?.venues?.[partIndex])
+        return 'restaurant';
+    if (user.last_flight_search?.offers?.[partIndex])
+        return 'flight';
+    return null;
+}
+export function buildPreviewReplyContext(user, kind, partIndex) {
+    if (partIndex < 0)
         return null;
-    if (preview.kind === 'restaurant') {
+    if (kind === 'restaurant') {
         const venue = user.last_restaurant_search?.venues?.[partIndex];
         if (!venue)
             return null;
@@ -33,9 +40,12 @@ export function buildPreviewReplyContext(user, preview, partIndex) {
         'Do not ask which flight they mean.',
     ].join(' ');
 }
-export function augmentUserMessageWithReplyContext(text, user, preview, partIndex) {
-    const context = buildPreviewReplyContext(user, preview, partIndex);
+export function augmentUserMessageWithSelection(text, user, kind, partIndex) {
+    const context = buildPreviewReplyContext(user, kind, partIndex);
     if (!context)
         return text;
     return `${text}\n\n[${context}]`;
+}
+export function augmentUserMessageWithReplyContext(text, user, preview, partIndex) {
+    return augmentUserMessageWithSelection(text, user, preview.kind, partIndex);
 }

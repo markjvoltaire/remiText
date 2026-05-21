@@ -1,6 +1,7 @@
 import { cloud } from 'spectrum-ts';
 import { createClient, NotFoundError } from '@photon-ai/advanced-imessage';
 import { normalizeContactKey } from '../utils/contactId.js';
+import { parseChildMessageId } from '../utils/replyContext.js';
 const IMESSAGE_ADDRESS = process.env.SPECTRUM_IMESSAGE_ADDRESS ?? 'imessage.spectrum.photon.codes:443';
 let _client = null;
 let _tokenData = null;
@@ -125,33 +126,128 @@ export async function sendPhotoStack(spaceId, images, options = {}) {
     const sent = await client.messages.sendMultipart(spaceId, parts);
     return sent.guid;
 }
-/**
- * Resolve which message (and photo-stack part) the user replied to.
- * Spectrum drops reply metadata on inbound text, so we fetch from Photon when needed.
- */
-export async function resolveInboundReplyTarget(spaceId, messageId, extras) {
-    if (extras?.replyTo?.messageId) {
-        const childMatch = extras.replyTo.messageId.match(/^p:(\d+)\/(.+)$/);
-        if (childMatch) {
-            return { guid: childMatch[2], partIndex: Number(childMatch[1]) };
-        }
-        return { guid: extras.replyTo.messageId };
+function extractReplyTargetFromAppleMessage(message) {
+    if (!message.replyTargetGuid)
+        return null;
+    let partIndex;
+    if (message.threadOriginatorPart !== undefined && message.threadOriginatorPart !== '') {
+        const parsed = Number.parseInt(message.threadOriginatorPart, 10);
+        if (Number.isFinite(parsed))
+            partIndex = parsed;
     }
-    try {
-        const raw = await getClient().messages.get(spaceId, messageId);
-        if (!raw.replyTargetGuid)
-            return null;
-        let partIndex;
-        if (raw.threadOriginatorPart !== undefined && raw.threadOriginatorPart !== '') {
-            const parsed = Number.parseInt(raw.threadOriginatorPart, 10);
-            if (Number.isFinite(parsed))
-                partIndex = parsed;
+    return { guid: message.replyTargetGuid, partIndex };
+}
+function extractReplyTargetFromSpectrumMessage(message) {
+    if (!message || typeof message !== 'object')
+        return null;
+    const record = message;
+    const terminalReplyTo = record.replyTo;
+    if (terminalReplyTo &&
+        typeof terminalReplyTo === 'object' &&
+        'messageId' in terminalReplyTo &&
+        typeof terminalReplyTo.messageId === 'string') {
+        const messageId = terminalReplyTo.messageId;
+        const child = parseChildMessageId(messageId);
+        if (child)
+            return { guid: child.parentGuid, partIndex: child.partIndex };
+        return { guid: messageId };
+    }
+    if (typeof record.parentId === 'string') {
+        const partIndex = typeof record.partIndex === 'number' ? record.partIndex : undefined;
+        return { guid: record.parentId, partIndex };
+    }
+    const content = record.content;
+    if (content && typeof content === 'object' && content.type === 'custom') {
+        const raw = content.raw;
+        if (raw && typeof raw === 'object') {
+            const rawRecord = raw;
+            const guid = (typeof rawRecord.replyTargetGuid === 'string' && rawRecord.replyTargetGuid) ||
+                (typeof rawRecord.reply_target_guid === 'string' && rawRecord.reply_target_guid) ||
+                null;
+            if (guid) {
+                let partIndex;
+                const partRaw = rawRecord.threadOriginatorPart ?? rawRecord.thread_originator_part;
+                if (typeof partRaw === 'string' && partRaw !== '') {
+                    const parsed = Number.parseInt(partRaw, 10);
+                    if (Number.isFinite(parsed))
+                        partIndex = parsed;
+                }
+                return { guid, partIndex };
+            }
         }
-        return { guid: raw.replyTargetGuid, partIndex };
+    }
+    return null;
+}
+async function findRecentInboundReplyTarget(spaceId, text) {
+    const trimmed = text.trim();
+    if (!trimmed)
+        return null;
+    try {
+        const page = await getClient().messages.listInChat(spaceId, {
+            pageSize: 25,
+            isFromMe: false,
+        });
+        let best = null;
+        for (const message of page.messages) {
+            const msgText = message.content.text?.trim();
+            if (msgText !== trimmed)
+                continue;
+            const target = extractReplyTargetFromAppleMessage(message);
+            if (!target)
+                continue;
+            const at = message.dateCreated.getTime();
+            if (!best || at > best.at) {
+                best = { target, at };
+            }
+        }
+        if (best) {
+            console.log(`[imessage] reply target from chat history guid=${best.target.guid} part=${best.target.partIndex ?? 'none'}`);
+            return best.target;
+        }
     }
     catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        console.warn(`[imessage] resolveInboundReplyTarget failed msg=${messageId}: ${msg}`);
-        return null;
+        console.warn(`[imessage] findRecentInboundReplyTarget failed space=${spaceId}: ${msg}`);
     }
+    return null;
+}
+/** True when the user replied to a message Remi sent (not the user's own bubble). */
+export async function isReplyToOurMessage(spaceId, target) {
+    try {
+        const message = await getClient().messages.get(spaceId, target.guid);
+        return message.isFromMe;
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[imessage] isReplyToOurMessage failed guid=${target.guid}: ${msg}`);
+        return false;
+    }
+}
+/**
+ * Resolve which message (and photo-stack part) the user replied to.
+ * Spectrum Cloud may rewrite message ids (spc-msg-*), so we also scan recent chat history.
+ */
+export async function resolveInboundReplyTarget(spaceId, messageId, text, spectrumMessage) {
+    const fromSpectrum = spectrumMessage
+        ? extractReplyTargetFromSpectrumMessage(spectrumMessage)
+        : null;
+    if (fromSpectrum) {
+        console.log(`[imessage] reply target from spectrum message guid=${fromSpectrum.guid} part=${fromSpectrum.partIndex ?? 'none'}`);
+        return fromSpectrum;
+    }
+    if (!messageId.startsWith('spc-')) {
+        try {
+            const raw = await getClient().messages.get(spaceId, messageId);
+            const target = extractReplyTargetFromAppleMessage(raw);
+            if (target) {
+                console.log(`[imessage] reply target from message.get guid=${target.guid} part=${target.partIndex ?? 'none'}`);
+                return target;
+            }
+        }
+        catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[imessage] resolveInboundReplyTarget get failed msg=${messageId}: ${msg}`);
+        }
+    }
+    return findRecentInboundReplyTarget(spaceId, text);
 }

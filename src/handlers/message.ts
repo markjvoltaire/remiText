@@ -7,13 +7,13 @@ import {
   appendMessage,
   setLastSentPreviewCards,
 } from '../services/supabase.js';
-import { markRead, sendPhotoStack, resolveInboundReplyTarget } from '../services/imessage.js';
+import { markRead, sendPhotoStack, resolveInboundReplyTarget, isReplyToOurMessage } from '../services/imessage.js';
 import { runAgentLoop, isAnthropicCapacityError } from '../ai/claude.js';
 import { getOnboardingSession, startOnboarding, advanceOnboarding } from '../services/onboarding.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { stripMarkdown } from '../utils/stripMarkdown.js';
-import { augmentUserMessageWithReplyContext } from '../utils/replyContext.js';
+import { augmentUserMessageWithReplyContext, augmentUserMessageWithSelection, inferPreviewKind } from '../utils/replyContext.js';
 import type { PreviewCardImage, PreviewCardRef } from '../images/satori/index.js';
 import type { LastSentPreviewCards } from '../types.js';
 
@@ -77,21 +77,36 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   const history = await getConversationHistory(user.id);
   let agentInput = text;
 
-  const terminalReplyTo = (message as { replyTo?: { messageId: string } }).replyTo;
-  const replyTarget = await resolveInboundReplyTarget(
-    space.id,
-    id,
-    terminalReplyTo ? { replyTo: terminalReplyTo } : undefined,
-  );
-  const previewCards = user.last_sent_preview_cards;
-  if (replyTarget && previewCards && replyTarget.guid === previewCards.parentMessageId) {
+  const replyTarget = await resolveInboundReplyTarget(space.id, id, text, message);
+  if (replyTarget) {
     const partIndex = replyTarget.partIndex ?? 0;
-    const augmented = augmentUserMessageWithReplyContext(text, user, previewCards, partIndex);
-    if (augmented !== text) {
-      console.log(
-        `[msg] reply-to-preview kind=${previewCards.kind} part=${partIndex} parent=${previewCards.parentMessageId}`,
-      );
-      agentInput = augmented;
+    const previewCards = user.last_sent_preview_cards;
+    const strictMatch = previewCards && replyTarget.guid === previewCards.parentMessageId;
+    const replyToUs = strictMatch || (await isReplyToOurMessage(space.id, replyTarget));
+
+    if (replyToUs) {
+      const kind =
+        (strictMatch ? previewCards!.kind : null) ??
+        inferPreviewKind(user, partIndex);
+
+      if (kind) {
+        const augmented = strictMatch
+          ? augmentUserMessageWithReplyContext(text, user, previewCards!, partIndex)
+          : augmentUserMessageWithSelection(text, user, kind, partIndex);
+
+        if (augmented !== text) {
+          console.log(
+            `[msg] reply-to-preview kind=${kind} part=${partIndex} target=${replyTarget.guid} strict=${Boolean(strictMatch)}`,
+          );
+          agentInput = augmented;
+        }
+      } else {
+        console.log(
+          `[msg] reply target resolved but no preview context part=${partIndex} target=${replyTarget.guid}`,
+        );
+      }
+    } else {
+      console.log(`[msg] reply target is not our message guid=${replyTarget.guid}`);
     }
   }
 

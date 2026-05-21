@@ -1,8 +1,9 @@
 import { cloud } from 'spectrum-ts';
 import type { TokenData } from 'spectrum-ts';
 import { createClient, NotFoundError } from '@photon-ai/advanced-imessage';
-import type { AdvancedIMessage, SharedFriendLocation } from '@photon-ai/advanced-imessage';
+import type { AdvancedIMessage, Message, SharedFriendLocation } from '@photon-ai/advanced-imessage';
 import { normalizeContactKey } from '../utils/contactId.js';
+import { parseChildMessageId } from '../utils/replyContext.js';
 
 export type SharedFriendLocationResult =
   | {
@@ -180,37 +181,153 @@ export interface InboundReplyTarget {
   partIndex?: number;
 }
 
+function extractReplyTargetFromAppleMessage(message: Message): InboundReplyTarget | null {
+  if (!message.replyTargetGuid) return null;
+
+  let partIndex: number | undefined;
+  if (message.threadOriginatorPart !== undefined && message.threadOriginatorPart !== '') {
+    const parsed = Number.parseInt(message.threadOriginatorPart, 10);
+    if (Number.isFinite(parsed)) partIndex = parsed;
+  }
+
+  return { guid: message.replyTargetGuid, partIndex };
+}
+
+function extractReplyTargetFromSpectrumMessage(message: unknown): InboundReplyTarget | null {
+  if (!message || typeof message !== 'object') return null;
+  const record = message as Record<string, unknown>;
+
+  const terminalReplyTo = record.replyTo;
+  if (
+    terminalReplyTo &&
+    typeof terminalReplyTo === 'object' &&
+    'messageId' in terminalReplyTo &&
+    typeof (terminalReplyTo as { messageId: unknown }).messageId === 'string'
+  ) {
+    const messageId = (terminalReplyTo as { messageId: string }).messageId;
+    const child = parseChildMessageId(messageId);
+    if (child) return { guid: child.parentGuid, partIndex: child.partIndex };
+    return { guid: messageId };
+  }
+
+  if (typeof record.parentId === 'string') {
+    const partIndex = typeof record.partIndex === 'number' ? record.partIndex : undefined;
+    return { guid: record.parentId, partIndex };
+  }
+
+  const content = record.content;
+  if (content && typeof content === 'object' && (content as { type?: unknown }).type === 'custom') {
+    const raw = (content as { raw?: unknown }).raw;
+    if (raw && typeof raw === 'object') {
+      const rawRecord = raw as Record<string, unknown>;
+      const guid =
+        (typeof rawRecord.replyTargetGuid === 'string' && rawRecord.replyTargetGuid) ||
+        (typeof rawRecord.reply_target_guid === 'string' && rawRecord.reply_target_guid) ||
+        null;
+      if (guid) {
+        let partIndex: number | undefined;
+        const partRaw = rawRecord.threadOriginatorPart ?? rawRecord.thread_originator_part;
+        if (typeof partRaw === 'string' && partRaw !== '') {
+          const parsed = Number.parseInt(partRaw, 10);
+          if (Number.isFinite(parsed)) partIndex = parsed;
+        }
+        return { guid, partIndex };
+      }
+    }
+  }
+
+  return null;
+}
+
+async function findRecentInboundReplyTarget(
+  spaceId: string,
+  text: string,
+): Promise<InboundReplyTarget | null> {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  try {
+    const page = await getClient().messages.listInChat(spaceId, {
+      pageSize: 25,
+      isFromMe: false,
+    });
+
+    let best: { target: InboundReplyTarget; at: number } | null = null;
+    for (const message of page.messages) {
+      const msgText = message.content.text?.trim();
+      if (msgText !== trimmed) continue;
+      const target = extractReplyTargetFromAppleMessage(message);
+      if (!target) continue;
+      const at = message.dateCreated.getTime();
+      if (!best || at > best.at) {
+        best = { target, at };
+      }
+    }
+
+    if (best) {
+      console.log(
+        `[imessage] reply target from chat history guid=${best.target.guid} part=${best.target.partIndex ?? 'none'}`,
+      );
+      return best.target;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[imessage] findRecentInboundReplyTarget failed space=${spaceId}: ${msg}`);
+  }
+
+  return null;
+}
+
+/** True when the user replied to a message Remi sent (not the user's own bubble). */
+export async function isReplyToOurMessage(
+  spaceId: string,
+  target: InboundReplyTarget,
+): Promise<boolean> {
+  try {
+    const message = await getClient().messages.get(spaceId, target.guid);
+    return message.isFromMe;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[imessage] isReplyToOurMessage failed guid=${target.guid}: ${msg}`);
+    return false;
+  }
+}
+
 /**
  * Resolve which message (and photo-stack part) the user replied to.
- * Spectrum drops reply metadata on inbound text, so we fetch from Photon when needed.
+ * Spectrum Cloud may rewrite message ids (spc-msg-*), so we also scan recent chat history.
  */
 export async function resolveInboundReplyTarget(
   spaceId: string,
   messageId: string,
-  extras?: { replyTo?: { messageId: string } },
+  text: string,
+  spectrumMessage?: unknown,
 ): Promise<InboundReplyTarget | null> {
-  if (extras?.replyTo?.messageId) {
-    const childMatch = extras.replyTo.messageId.match(/^p:(\d+)\/(.+)$/);
-    if (childMatch) {
-      return { guid: childMatch[2]!, partIndex: Number(childMatch[1]) };
-    }
-    return { guid: extras.replyTo.messageId };
+  const fromSpectrum = spectrumMessage
+    ? extractReplyTargetFromSpectrumMessage(spectrumMessage)
+    : null;
+  if (fromSpectrum) {
+    console.log(
+      `[imessage] reply target from spectrum message guid=${fromSpectrum.guid} part=${fromSpectrum.partIndex ?? 'none'}`,
+    );
+    return fromSpectrum;
   }
 
-  try {
-    const raw = await getClient().messages.get(spaceId, messageId);
-    if (!raw.replyTargetGuid) return null;
-
-    let partIndex: number | undefined;
-    if (raw.threadOriginatorPart !== undefined && raw.threadOriginatorPart !== '') {
-      const parsed = Number.parseInt(raw.threadOriginatorPart, 10);
-      if (Number.isFinite(parsed)) partIndex = parsed;
+  if (!messageId.startsWith('spc-')) {
+    try {
+      const raw = await getClient().messages.get(spaceId, messageId);
+      const target = extractReplyTargetFromAppleMessage(raw);
+      if (target) {
+        console.log(
+          `[imessage] reply target from message.get guid=${target.guid} part=${target.partIndex ?? 'none'}`,
+        );
+        return target;
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[imessage] resolveInboundReplyTarget get failed msg=${messageId}: ${msg}`);
     }
-
-    return { guid: raw.replyTargetGuid, partIndex };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[imessage] resolveInboundReplyTarget failed msg=${messageId}: ${msg}`);
-    return null;
   }
+
+  return findRecentInboundReplyTarget(spaceId, text);
 }
