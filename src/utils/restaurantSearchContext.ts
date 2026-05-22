@@ -41,6 +41,8 @@ export function formatLastRestaurantSearchForPrompt(
 
   const { location, date, party_size, query } = ctx.search_params;
   const queryPart = query ? ` query="${query}"` : '';
+  const selectedPart =
+    ctx.selected_venue_id != null ? ` selected_venue_id=${ctx.selected_venue_id}` : '';
 
   const lines = ctx.venues.map((v, idx) => {
     const times = v.slots
@@ -52,7 +54,7 @@ export function formatLastRestaurantSearchForPrompt(
   });
 
   return [
-    `Prior restaurant search context (location="${location}", date=${date}, party_size=${party_size}${queryPart}):`,
+    `Prior restaurant search context (location="${location}", date=${date}, party_size=${party_size}${queryPart}${selectedPart}):`,
     ...lines,
     'USE THIS CONTEXT ONLY when the user is picking a venue from the list above (by name, position like "first/second", or by replying to a preview image).',
     'DO NOT reuse this list as a reply if the user is asking for a NEW search — for example a different cuisine, neighborhood, date, party size, or city. In that case you MUST call search_restaurants with the new parameters.',

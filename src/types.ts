@@ -64,6 +64,8 @@ export interface LastRestaurantSearchContext {
   venues: PendingRestaurantSummary[];
   updated_at: string;
   search_params: LastRestaurantSearchParams;
+  /** Set when the user focuses on one restaurant (availability, image reply, etc.). */
+  selected_venue_id?: number;
 }
 
 /** Tracks the iMessage guid for the most recent preview-card photo stack. */

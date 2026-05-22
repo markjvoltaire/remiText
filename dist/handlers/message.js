@@ -6,7 +6,7 @@ import { getOnboardingSession, startOnboarding, advanceOnboarding } from '../ser
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { stripMarkdown } from '../utils/stripMarkdown.js';
-import { augmentUserMessageWithReplyContext, augmentUserMessageWithSelection, inferPreviewKind } from '../utils/replyContext.js';
+import { augmentBookRestaurantCommand, augmentUserMessageWithReplyContext, augmentUserMessageWithSelection, inferPreviewKind, } from '../utils/replyContext.js';
 function extractText(content) {
     if (typeof content === 'string')
         return content;
@@ -55,6 +55,11 @@ export async function handleMessage(space, message) {
     console.log(`[msg] user=${user.id}`);
     const history = await getConversationHistory(user.id);
     let agentInput = text;
+    const bookAugmented = augmentBookRestaurantCommand(text, user, history);
+    if (bookAugmented !== text) {
+        console.log('[msg] book-restaurant intent augmented');
+        agentInput = bookAugmented;
+    }
     const replyTarget = await resolveInboundReplyTarget(space.id, id, text, message);
     if (replyTarget) {
         const partIndex = replyTarget.partIndex ?? 0;

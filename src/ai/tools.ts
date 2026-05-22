@@ -154,7 +154,7 @@ export const tools: Anthropic.Tool[] = [
   {
     name: 'book_restaurant_table',
     description:
-      'Book a Resy table for a specific time slot from the latest search. Call when the user clearly wants to reserve (e.g. book it, reserve, yes book, lock it in) after they picked a restaurant and time. Requires venue_id and time from the latest search_restaurants or get_restaurant_availability results.',
+      'Book a Resy table for a specific time slot. Call immediately when the user says book/reserve with a time (e.g. "book the 5:45", "reserve 7pm") — do not say booking is unavailable. Use venue_id from selected_venue_id, the restaurant they discussed, or the latest search. Requires date and time matching an available slot.',
     input_schema: {
       type: 'object',
       properties: {

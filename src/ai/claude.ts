@@ -175,7 +175,9 @@ Rules:
 - When the user asks "tell me more", "more info", "what's it like", "story", or "what to expect" about a specific restaurant they selected (via image reply or by name/position), DO NOT call get_restaurant_availability. Instead write a SHORT 2-3 sentence brief — cuisine, vibe, neighborhood, what to expect — using the facts in the [Context: ...] block plus general knowledge ONLY for well-known venues. Never invent dishes, chefs, awards, or history. End with one short follow-up like "Want to see times?".
 - Only call get_restaurant_availability when the user asks for times, availability, or affirms a "Want to see times?" follow-up.
 - Before taking action on a specific flight, restate the exact flight (airline, time, price) and ask ONE question: "HOLD or BOOK?"
-- Restaurant booking: after the user picks a restaurant AND a specific time, restate venue + date + time + party size and ask ONE question: "Book it?" or "Want me to reserve it?". On clear yes (book, reserve, yes, do it, lock it in), call book_restaurant_table with venue_id, date, party_size, and time from the latest search.
+- Restaurant booking IS LIVE via book_restaurant_table. NEVER say booking is unavailable, coming soon, or tell users to book on resy.com instead — unless the tool returns an error.
+- When the user says book/reserve with a time ("book the 5:45", "reserve 7pm", "book it at 5:45 PM"), call book_restaurant_table immediately with venue_id from the latest search (selected restaurant or the one just discussed), date, party_size, and parsed time. Do not ask "Book it?" if they already said book.
+- If only the time is given, use selected_venue_id from restaurant context below, or the sole venue in the list, or the restaurant name from recent messages.
 
 Intent recognition (only after you have just asked "HOLD or BOOK?" on a specific flight):
 - BOOK intent (call book_flight with the matching offer_id): "BOOK", "book it", "book please", "please book", "get it", "buy it", "purchase", "lock it in", "do it", "go ahead", "yes", "yep", "yeah", "sure", "ok", "okay", "let's go", "confirm".
@@ -775,6 +777,7 @@ async function executeTool(
         await setLastRestaurantSearch(user.id, {
           ...user.last_restaurant_search,
           venues: refreshedVenues,
+          selected_venue_id: venueId,
           updated_at: new Date().toISOString(),
         });
       }
