@@ -177,6 +177,62 @@ export const tools = [
         },
     },
     {
+        name: 'search_tiktok',
+        description: 'Search TikTok and Instagram in parallel for trending things to do, eat, nightlife, and events. Call only after the user gave a specific vibe/mood (not for vague requests like "something fun in Miami" — ask their mood first). Call this OR search_instagram, not both. Keywords and hashtags must reflect the stated vibe. Returns slim trend items to synthesize — never paste raw API data.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                location: {
+                    type: 'string',
+                    description: 'City or area, e.g. "Miami", "West Village", "Austin"',
+                },
+                vibe: {
+                    type: 'string',
+                    description: 'Specific mood the user stated in this or the prior message, e.g. "afrobeats clubs", "romantic date night", "house music", "rooftop brunch". Do not invent for vague requests.',
+                },
+                keywords: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: '1-2 TikTok search keyword phrases combining location + the user\'s stated vibe, e.g. ["miami afrobeats nightlife"] — only the first is used per call.',
+                },
+                instagram_hashtags: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: '1-2 Instagram hashtags matching the vibe, e.g. ["miamiafrobeats", "miaminightlife"] — only the first is used per call.',
+                },
+            },
+            required: ['location', 'vibe', 'keywords', 'instagram_hashtags'],
+        },
+    },
+    {
+        name: 'search_instagram',
+        description: 'Search TikTok and Instagram in parallel for trending venues, parties, and events. Call only after the user gave a specific vibe/mood (not for vague "something fun in [city]" — ask their mood first). Call this OR search_tiktok, not both. Hashtags and keywords must reflect the stated vibe. Returns slim trend items to synthesize — never paste raw API data.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                location: {
+                    type: 'string',
+                    description: 'City or area, e.g. "Miami", "West Village", "Austin"',
+                },
+                vibe: {
+                    type: 'string',
+                    description: 'Specific mood the user stated in this or the prior message, e.g. "afrobeats clubs", "romantic date night", "house music". Do not invent for vague requests.',
+                },
+                hashtags: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: '1-2 Instagram hashtags matching location + vibe, e.g. ["miamiafrobeats", "miaminightlife"] — only the first is used per call.',
+                },
+                tiktok_keywords: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: '1-2 TikTok keyword phrases matching location + vibe, e.g. ["miami afrobeats nightlife"] — only the first is used per call.',
+                },
+            },
+            required: ['location', 'vibe', 'hashtags', 'tiktok_keywords'],
+        },
+    },
+    {
         name: 'cancel_restaurant_reservation',
         description: 'Cancel an existing Resy table reservation. Call when the user wants to cancel a restaurant booking (e.g. "cancel my reservation", "cancel dinner at Bondi", "cancel the 7pm"). Use resy_token if known; otherwise venue_name and optional date to match. If multiple match, the tool returns a numbered list — ask the user to pick one, then call again with resy_token or venue_name + date.',
         input_schema: {

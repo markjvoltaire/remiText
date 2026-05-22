@@ -41,3 +41,5 @@ services:
         sync: false
       - key: RESY_PAYMENT_METHOD_ID
         sync: false
+      - key: MONID_API_KEY
+        sync: false

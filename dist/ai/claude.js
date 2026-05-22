@@ -13,6 +13,8 @@ import { setLastFlightSearch, clearLastFlightSearch, setLastRestaurantSearch, se
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
+import { isMonidConfigured, runSocialDiscovery, MonidNotConfiguredError, MonidApiError, } from '../services/monid.js';
+import { formatSocialDiscoveryForTool, isVagueSocialVibe, } from '../utils/formatSocialRecommendations.js';
 import { getSharedFriendLocation } from '../services/imessage.js';
 import { nearestAirports } from '../utils/nearestAirport.js';
 import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, } from '../images/satori/index.js';
@@ -101,7 +103,7 @@ async function createMessageWithRetries(params) {
     }
     throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
 }
-const SYSTEM_PROMPT = `You are Remi, a friendly AI travel and dining concierge over SMS. You help with flights and restaurant availability. Be concise — every response is an SMS.
+const SYSTEM_PROMPT = `You are Remi, a friendly AI travel, dining, and local experiences concierge over SMS. You help with flights, restaurant reservations, and what's trending locally (TikTok + Instagram). Be concise — every response is an SMS.
 
 Today's date is ${new Date().toISOString().split('T')[0]}.
 
@@ -135,11 +137,15 @@ Tool calling discipline (IMPORTANT):
 - Do not call search_restaurants more than once per turn. Pick exactly one cuisine/query and one date. If the user gave a cuisine (e.g. "sushi"), use only that — do not also search a backup cuisine.
 - Do not call search_flights more than once per turn. Pick exactly one origin/destination/date combo.
 - If you are unsure which date or city to use, ASK the user instead of calling the tool with a guess.
+- For local recommendations, if vibe/mood is missing or generic, ASK — do not call search_tiktok or search_instagram with guessed keywords.
 - Never make speculative parallel tool calls "in case the first returns nothing".
 
-Tool routing:
+Local recommendations (TikTok + Instagram) — vibe required before searching:
+- If the user only gives a city or something vague ("something fun in Miami", "what's good in NYC", "things to do this weekend") with NO specific mood, do NOT call search_tiktok or search_instagram. Ask what they're in the mood for first — one short SMS, e.g. "What are you in the mood for? House? Afrobeats? An activity? Date night? Something romantic?" You can tailor examples to the city but keep it brief.
+- Only call search_tiktok or search_instagram once they answer with a concrete vibe: music/scene (house, afrobeats, hip-hop, latin), activity type (beach day, boat, art), occasion (date night, romantic dinner, girls night, birthday), food/drink style (brunch, rooftop, speakeasy, clubs), or similar. "Fun" or "cool spots" alone is still too vague — ask again.
+- When vibe is clear, call exactly ONE of search_tiktok or search_instagram (not both). Pass location, vibe, and 1-2 TikTok keyword phrases + 1-2 Instagram hashtags that match that vibe (no # needed). Example after they say afrobeats clubs: search_tiktok with location "Miami", vibe "afrobeats clubs", keywords ["miami afrobeats nightlife"], instagram_hashtags ["miamiafrobeats", "miaminightlife"].
 - Flight requests → search_flights, hold_flight, book_flight, confirm_booking as appropriate.
-- Restaurant / table / dinner availability → search_restaurants. If location is missing, call get_user_location first when they may have shared Find My location; derive a city from coordinates or ask which city.
+- Restaurant / table / dinner availability (booking intent) → search_restaurants. If location is missing, call get_user_location first when they may have shared Find My location; derive a city from coordinates or ask which city.
 - User picks a restaurant from results → get_restaurant_availability with venue_id from the latest search.
 - User confirms a restaurant reservation → book_restaurant_table with venue_id, date, party_size, and time from the latest search.
 - User asks about upcoming restaurant bookings → list_restaurant_reservations.
@@ -157,6 +163,8 @@ Output formatting:
 - When book_restaurant_table returns successfully, use the "formatted" field as your reply verbatim.
 - When list_restaurant_reservations returns successfully, use the "formatted" field as your reply verbatim.
 - When cancel_restaurant_reservation returns successfully, use the "formatted" field as your reply verbatim.
+- When search_tiktok or search_instagram returns needs_vibe: true, ask what they are in the mood for (one short SMS with examples). Do not mention tools or APIs.
+- When search_tiktok or search_instagram returns items, synthesize at most 2-3 short recommendations (never dump raw posts). Venue example: "Gekko is blowing up on TikTok right now — wagyu tacos, Brickell." Event example: "E11EVEN has a rooftop party Saturday night. Starts at 10pm, Downtown Miami. Looks packed on Instagram." If both_empty is true, reply with fallback_message exactly. After social/trend recommendations, NEVER ask to book or reserve — stop after the recommendations. If the user later asks to book a venue you mentioned, ask "How many people and what time?" then use search_restaurants (not a booking prompt on the discovery reply).
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
 - Format prices as "$X" not "$X.XX" unless cents matter.
@@ -609,6 +617,61 @@ async function executeTool(toolName, input, user, ctx) {
         await clearLastFlightSearch(user.id);
         await clearPendingOrder(user.id);
         return JSON.stringify({ success: true, message: 'Payment processed and booking confirmed.' });
+    }
+    if (toolName === 'search_tiktok' || toolName === 'search_instagram') {
+        if (!isMonidConfigured()) {
+            return JSON.stringify({
+                error: true,
+                message: "I can't check social trends right now. Try again in a bit.",
+            });
+        }
+        const location = String(input.location ?? '').trim();
+        const vibe = input.vibe?.trim() || undefined;
+        const tiktokKeywords = toolName === 'search_tiktok'
+            ? (input.keywords ?? [])
+            : (input.tiktok_keywords ?? []);
+        const instagramHashtags = toolName === 'search_instagram'
+            ? (input.hashtags ?? [])
+            : (input.instagram_hashtags ?? []);
+        if (!location) {
+            return JSON.stringify({
+                error: true,
+                message: 'Which city or neighborhood should I search?',
+            });
+        }
+        if (isVagueSocialVibe(vibe)) {
+            return JSON.stringify({
+                needs_vibe: true,
+                message: 'Ask the user what they are in the mood for before searching — e.g. house, afrobeats, an activity, date night, romantic, brunch, clubs. Do not call this tool again until they answer with something specific.',
+            });
+        }
+        try {
+            const discovery = await runSocialDiscovery({
+                location,
+                vibe,
+                tiktokKeywords,
+                instagramHashtags,
+            });
+            const payload = formatSocialDiscoveryForTool(discovery);
+            console.log(`[${toolName}] location=${location} items=${payload.items.length} both_empty=${payload.both_empty}`);
+            return JSON.stringify(payload);
+        }
+        catch (err) {
+            const message = err instanceof MonidNotConfiguredError
+                ? "I can't check social trends right now. Try again in a bit."
+                : err instanceof MonidApiError
+                    ? err.message
+                    : err instanceof Error
+                        ? err.message
+                        : String(err);
+            console.error(`[${toolName}] ${message}`);
+            return JSON.stringify({
+                both_empty: true,
+                fallback_message: 'Nothing trending there right now — want me to search somewhere specific?',
+                items: [],
+                guidance: 'Reply with fallback_message only. Do not mention API or search failures.',
+            });
+        }
     }
     if (toolName === 'search_restaurants') {
         if (!isResyConfigured()) {

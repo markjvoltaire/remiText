@@ -1,0 +1,136 @@
+/** True when mood is too generic to run a paid TikTok/Instagram search. */
+export function isVagueSocialVibe(vibe) {
+    const v = vibe?.trim().toLowerCase() ?? '';
+    if (!v || v.length < 4)
+        return true;
+    const vague = /^(something fun|things to do|what'?s good|what to do|fun|cool|good spots?|recommendations?|ideas?|stuff|activities?|weekend plans?|night out|going out|hang out|explore|discover|local tips)$/;
+    if (vague.test(v))
+        return true;
+    if (/^fun in /.test(v) || /^something in /.test(v))
+        return true;
+    return false;
+}
+const EVENT_HINTS = /\b(party|parties|concert|festival|pop-?up|rooftop|dj|live music|memorial day|this weekend|saturday|sunday|friday night|tonight|tickets|starts at|doors at|event)\b/i;
+const VENUE_HINTS = /\b(restaurant|bar|club|lounge|brunch|dinner|tacos|steakhouse|hotel|rooftop bar|speakeasy|café|cafe|kitchen|grill|bistro)\b/i;
+function classifyType(text) {
+    if (EVENT_HINTS.test(text))
+        return 'event';
+    if (VENUE_HINTS.test(text))
+        return 'venue';
+    return 'other';
+}
+function extractName(text) {
+    const cleaned = text.replace(/\s+/g, ' ').trim();
+    if (!cleaned)
+        return 'Trending spot';
+    const atVenue = cleaned.match(/\b(?:at|@)\s+([A-Z][A-Za-z0-9'&.\- ]{2,40}?)(?:\s+[-–—,]|$)/);
+    if (atVenue?.[1])
+        return atVenue[1].trim().slice(0, 60);
+    const dashVenue = cleaned.match(/^([A-Z][A-Za-z0-9'&.\- ]{2,35})\s+[-–—]/);
+    if (dashVenue?.[1])
+        return dashVenue[1].trim();
+    const firstChunk = cleaned.split(/[.!?\n]/)[0]?.trim() ?? cleaned;
+    return firstChunk.slice(0, 55) || 'Trending spot';
+}
+function formatEngagement(views, likes, comments) {
+    const v = views && views > 0 ? views : undefined;
+    const l = likes && likes > 0 ? likes : undefined;
+    if (v && v >= 1000)
+        return `${Math.round(v / 1000)}k views`;
+    if (v)
+        return `${v} views`;
+    if (l && l >= 1000)
+        return `${Math.round(l / 1000)}k likes`;
+    if (l)
+        return `${l} likes`;
+    if (comments && comments > 0)
+        return `${comments} comments`;
+    return undefined;
+}
+function tiktokToItems(raw) {
+    const items = [];
+    for (const row of raw) {
+        if (!row || typeof row !== 'object')
+            continue;
+        const post = row;
+        const title = String(post.title ?? '').trim();
+        if (!title)
+            continue;
+        const poi = post.poi;
+        const neighborhood = poi?.poiName ||
+            poi?.cityName ||
+            undefined;
+        const uploaded = post.uploadedAtFormatted;
+        const type = classifyType(title);
+        const name = extractName(title);
+        items.push({
+            source: 'tiktok',
+            name,
+            type,
+            hook: title.slice(0, 220),
+            neighborhood,
+            when: type === 'event' ? uploaded : undefined,
+            engagement: formatEngagement(post.views, post.likes, post.comments),
+        });
+    }
+    return items.sort((a, b) => scoreItem(b) - scoreItem(a));
+}
+function instagramToItems(raw) {
+    const items = [];
+    for (const row of raw) {
+        if (!row || typeof row !== 'object')
+            continue;
+        const post = row;
+        const caption = String(post.caption ?? '').trim();
+        if (!caption)
+            continue;
+        const locationName = post.locationName;
+        const timestamp = post.timestamp;
+        const type = classifyType(caption);
+        const name = extractName(caption) || post.ownerUsername || 'Trending spot';
+        items.push({
+            source: 'instagram',
+            name,
+            type,
+            hook: caption.slice(0, 220),
+            neighborhood: locationName,
+            when: type === 'event' ? timestamp : undefined,
+            engagement: formatEngagement(undefined, post.likesCount, post.commentsCount),
+        });
+    }
+    return items.sort((a, b) => scoreItem(b) - scoreItem(a));
+}
+function scoreItem(item) {
+    let score = 0;
+    if (item.type === 'venue')
+        score += 3;
+    if (item.type === 'event')
+        score += 2;
+    if (item.engagement?.includes('k'))
+        score += 2;
+    if (item.neighborhood)
+        score += 1;
+    return score;
+}
+export function formatSocialDiscoveryForTool(result) {
+    const tiktokItems = tiktokToItems(result.tiktok.items).slice(0, 6);
+    const igItems = instagramToItems(result.instagram.items).slice(0, 6);
+    const merged = [];
+    const seen = new Set();
+    for (const item of [...tiktokItems, ...igItems]) {
+        const key = `${item.source}:${item.name.toLowerCase()}`;
+        if (seen.has(key))
+            continue;
+        seen.add(key);
+        merged.push(item);
+    }
+    const ranked = merged.sort((a, b) => scoreItem(b) - scoreItem(a)).slice(0, 12);
+    return {
+        location: result.location,
+        vibe: result.vibe,
+        items: ranked,
+        both_empty: result.both_empty,
+        fallback_message: 'Nothing trending there right now — want me to search somewhere specific?',
+        guidance: 'Synthesize at most 2-3 recommendations for the user. Venue: one line with name, why trending, neighborhood. Event: name, date/time, location. Plain SMS — no lists of raw posts. Never suggest booking after a social discovery reply. If the user later asks to book a venue you mentioned, ask how many people and what time, then use search_restaurants.',
+    };
+}
