@@ -143,7 +143,7 @@ export const tools = [
     },
     {
         name: 'book_restaurant_table',
-        description: 'Book a Resy table for a specific time slot from the latest search. Call when the user clearly wants to reserve (e.g. book it, reserve, yes book, lock it in) after they picked a restaurant and time. Requires venue_id and time from the latest search_restaurants or get_restaurant_availability results.',
+        description: 'Book a Resy table for a specific time slot. Call immediately when the user says book/reserve with a time (e.g. "book the 5:45", "reserve 7pm") — do not say booking is unavailable. Use venue_id from selected_venue_id, the restaurant they discussed, or the latest search. Requires date and time matching an available slot.',
         input_schema: {
             type: 'object',
             properties: {
@@ -165,6 +165,37 @@ export const tools = [
                 },
             },
             required: ['venue_id', 'date', 'time'],
+        },
+    },
+    {
+        name: 'list_restaurant_reservations',
+        description: 'List the user\'s upcoming restaurant reservations booked through Remi (and on the Resy account). Call when they ask what reservations they have, upcoming dinners, or before cancelling if unclear which one.',
+        input_schema: {
+            type: 'object',
+            properties: {},
+            required: [],
+        },
+    },
+    {
+        name: 'cancel_restaurant_reservation',
+        description: 'Cancel an existing Resy table reservation. Call when the user wants to cancel a restaurant booking (e.g. "cancel my reservation", "cancel dinner at Bondi", "cancel the 7pm"). Use resy_token if known; otherwise venue_name and optional date to match. If multiple match, the tool returns a numbered list — ask the user to pick one, then call again with resy_token or venue_name + date.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                resy_token: {
+                    type: 'string',
+                    description: 'Resy reservation token (rr://...) from a prior booking or list_restaurant_reservations',
+                },
+                venue_name: {
+                    type: 'string',
+                    description: 'Restaurant name to match, e.g. "Bondi Sushi"',
+                },
+                date: {
+                    type: 'string',
+                    description: 'Reservation date YYYY-MM-DD to disambiguate',
+                },
+            },
+            required: [],
         },
     },
 ];

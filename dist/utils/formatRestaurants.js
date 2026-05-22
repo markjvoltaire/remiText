@@ -64,3 +64,17 @@ export function formatReservationConfirmationSMS(params) {
     const conf = params.confirmation ? ` Confirmation: ${params.confirmation}.` : '';
     return `Booked ${params.venueName} for ${params.partySize} on ${params.date} at ${params.time}${seating}.${conf} You'll get a Resy confirmation email shortly.`;
 }
+export function reservationsListToSMS(items) {
+    if (items.length === 0) {
+        return 'No upcoming restaurant reservations on file.';
+    }
+    const lines = items.map((r, idx) => {
+        const time = r.time ? ` at ${r.time}` : '';
+        return `${idx + 1}. ${r.venue_name} — ${r.date}${time}, party of ${r.party_size}`;
+    });
+    return ['Your upcoming reservations:', '', ...lines].join('\n');
+}
+export function formatReservationCancellationSMS(params) {
+    const time = params.time ? ` at ${params.time}` : '';
+    return `Cancelled your reservation at ${params.venueName} on ${params.date}${time}.`;
+}

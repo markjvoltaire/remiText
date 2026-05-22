@@ -135,3 +135,44 @@ export interface HeldOrder {
   total_currency: string;
   slices: FlightSlice[];
 }
+
+export type FlightBookingStatus = 'held' | 'confirmed';
+
+export interface FlightBookingRecord {
+  id: string;
+  user_id: string;
+  status: FlightBookingStatus;
+  booking_reference: string | null;
+  duffel_order_id: string;
+  duffel_offer_id: string | null;
+  origin: string | null;
+  destination: string | null;
+  departure_date: string | null;
+  return_date: string | null;
+  airline: string | null;
+  total_amount: string | null;
+  total_currency: string | null;
+  stripe_payment_intent_id: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export type RestaurantBookingStatus = 'active' | 'cancelled';
+
+export interface RestaurantBookingRecord {
+  id: string;
+  user_id: string;
+  venue_id: number;
+  venue_name: string;
+  reservation_date: string;
+  reservation_time: string;
+  party_size: number;
+  confirmation_code: string | null;
+  resy_token: string;
+  location: string | null;
+  seating_type: string | null;
+  status: RestaurantBookingStatus;
+  cancelled_at: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+}

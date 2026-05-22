@@ -26,11 +26,16 @@ import {
   restaurantsToSMS,
   restaurantDetailToSMS,
   formatReservationConfirmationSMS,
+  reservationsListToSMS,
+  formatReservationCancellationSMS,
 } from '../utils/formatRestaurants.js';
+import { resolveReservationToCancel } from '../utils/restaurantReservations.js';
 import {
   searchRestaurants,
   getRestaurantAvailability,
   reserveRestaurantTable,
+  listUpcomingReservations,
+  cancelReservation,
   findVenueSlotByTime,
   isResyConfigured,
   formatResyError,
@@ -44,6 +49,11 @@ import {
   setLastRestaurantSearch,
   setPendingOrder,
   clearPendingOrder,
+  saveFlightBooking,
+  confirmFlightBooking,
+  saveRestaurantBooking,
+  getActiveRestaurantBookings,
+  markRestaurantBookingCancelled,
 } from '../services/supabase.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
@@ -182,7 +192,8 @@ Rules:
 Intent recognition (only after you have just asked "HOLD or BOOK?" on a specific flight):
 - BOOK intent (call book_flight with the matching offer_id): "BOOK", "book it", "book please", "please book", "get it", "buy it", "purchase", "lock it in", "do it", "go ahead", "yes", "yep", "yeah", "sure", "ok", "okay", "let's go", "confirm".
 - HOLD intent (call hold_flight with the matching offer_id): "HOLD", "hold it", "save it", "reserve it", "pencil it in", "keep it".
-- Negative ("no", "not yet", "wait", "cancel", "nevermind"): do not call any tool. Ask what they want.
+- Negative ("no", "not yet", "wait", "nevermind") after a flight HOLD/BOOK question: do not call any tool. Ask what they want.
+- Restaurant reservation cancel ("cancel my reservation", "cancel dinner at X", "cancel the 7pm at Bondi"): call cancel_restaurant_reservation (or list_restaurant_reservations first if unclear). Do NOT say they must cancel in the Resy app unless the tool errors.
 - If a bare affirmative arrives without a recent "HOLD or BOOK?" question on a specific flight, do not call any tool — ask one clarifying question.
 
 Tool calling discipline (IMPORTANT):
@@ -197,6 +208,8 @@ Tool routing:
 - Restaurant / table / dinner availability → search_restaurants. If location is missing, call get_user_location first when they may have shared Find My location; derive a city from coordinates or ask which city.
 - User picks a restaurant from results → get_restaurant_availability with venue_id from the latest search.
 - User confirms a restaurant reservation → book_restaurant_table with venue_id, date, party_size, and time from the latest search.
+- User asks about upcoming restaurant bookings → list_restaurant_reservations.
+- User cancels a restaurant reservation → cancel_restaurant_reservation with venue_name and/or date, or resy_token after listing.
 - BOOK intent → book_flight (charges the user and creates the order in one step; works for any carrier, including Frontier and other instant-payment airlines).
 - HOLD intent → hold_flight. If hold_flight returns { error: true, instant_only: true }, tell the user this airline requires instant payment and ask if they want to BOOK now; on BOOK affirmative call book_flight.
 - For book_flight / hold_flight, always use an offer_id from the "offers" array in the latest search (or the pending options list in context). Never invent flights, prices, or flight numbers.
@@ -208,6 +221,8 @@ Output formatting:
 - When search_restaurants returns { error: true, message }, relay the message to the user briefly; do not invent a generic failure if a specific message is provided.
 - When get_restaurant_availability returns results, use the "formatted" field as your reply verbatim. Append: "Reply with a time to book (e.g. 7:00 PM)."
 - When book_restaurant_table returns successfully, use the "formatted" field as your reply verbatim.
+- When list_restaurant_reservations returns successfully, use the "formatted" field as your reply verbatim.
+- When cancel_restaurant_reservation returns successfully, use the "formatted" field as your reply verbatim.
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
 - Format prices as "$X" not "$X.XX" unless cents matter.
@@ -457,6 +472,24 @@ async function executeTool(
         order_create: holdResult.rawOrderCreate,
       },
     });
+    await saveFlightBooking({
+      userId: user.id,
+      status: 'held',
+      bookingReference: order.booking_reference,
+      duffelOrderId: order.id,
+      duffelOfferId: offerId,
+      origin: from,
+      destination: to,
+      departureDate: order.slices[0]?.departure_date,
+      returnDate: order.slices[1]?.departure_date,
+      airline,
+      totalAmount: order.total_amount,
+      totalCurrency: order.total_currency,
+      metadata: {
+        offer_get: holdResult.rawOfferGet,
+        order_create: holdResult.rawOrderCreate,
+      },
+    });
     await clearLastFlightSearch(user.id);
     await attachFlightCardSafely(ctx, order, price, `hold:${order.booking_reference}`);
     return JSON.stringify({ order, formatted: confirmation });
@@ -611,6 +644,29 @@ async function executeTool(
         stripe_payment_intent: paymentIntentId,
       },
     });
+    const bookOutSeg = order.slices[0]?.segments[0];
+    await saveFlightBooking({
+      userId: user.id,
+      status: 'confirmed',
+      bookingReference: order.booking_reference,
+      duffelOrderId: order.id,
+      duffelOfferId: offerId,
+      origin: order.slices[0]?.origin,
+      destination: order.slices[0]?.destination,
+      departureDate: order.slices[0]?.departure_date,
+      returnDate: order.slices[1]?.departure_date,
+      airline: bookOutSeg?.marketing_carrier_name,
+      totalAmount: order.total_amount,
+      totalCurrency: order.total_currency,
+      stripePaymentIntentId: paymentIntentId,
+      metadata: {
+        offer_get: bookResult.rawOfferGet,
+        order_create: bookResult.rawOrderCreate,
+        stripe_payment_intent: paymentIntentId,
+        charged_amount_cents: amountInCents,
+        charged_currency: currency,
+      },
+    });
     await clearLastFlightSearch(user.id);
     await clearPendingOrder(user.id);
 
@@ -661,8 +717,14 @@ async function executeTool(
       user_id: user.id,
     });
 
+    let paymentIntentId: string;
     try {
-      await chargeViaSPT(user.stripe_spt_id, amountInCents, currency, user.stripe_customer_id);
+      paymentIntentId = await chargeViaSPT(
+        user.stripe_spt_id,
+        amountInCents,
+        currency,
+        user.stripe_customer_id,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error('[confirm_booking] stripe charge failed:', message);
@@ -673,6 +735,12 @@ async function executeTool(
     }
 
     await payForOrderWithBalance(orderId, amountStr, currency.toUpperCase());
+
+    await confirmFlightBooking({
+      userId: user.id,
+      duffelOrderId: orderId,
+      stripePaymentIntentId: paymentIntentId,
+    });
 
     await clearLastFlightSearch(user.id);
     await clearPendingOrder(user.id);
@@ -870,6 +938,23 @@ async function executeTool(
         `[book_restaurant_table] booked venue=${venueId} time=${slot.time} conf=${booked.confirmation ?? 'n/a'}`,
       );
 
+      await saveRestaurantBooking({
+        userId: user.id,
+        venueId,
+        venueName: venue.name,
+        reservationDate: date,
+        reservationTime: slot.time,
+        partySize,
+        resyToken: booked.resyToken,
+        confirmationCode: booked.confirmation,
+        location: searchParams?.location ?? venue.neighborhood,
+        seatingType: slot.slot_type,
+        metadata: {
+          config_token: slot.config_token,
+          payment_method_id: booked.paymentMethodId,
+        },
+      });
+
       return JSON.stringify({
         success: true,
         formatted,
@@ -893,6 +978,124 @@ async function executeTool(
           ? `That time just got taken. Want me to pull fresh times for ${time}?`
           : message,
       });
+    }
+  }
+
+  if (toolName === 'list_restaurant_reservations') {
+    if (!isResyConfigured()) {
+      return JSON.stringify({
+        error: true,
+        message: 'Dining is temporarily unavailable. Try again later.',
+      });
+    }
+
+    try {
+      const dbBookings = await getActiveRestaurantBookings(user.id);
+      let resyUpcoming: Awaited<ReturnType<typeof listUpcomingReservations>> = [];
+      try {
+        resyUpcoming = await listUpcomingReservations();
+      } catch (err) {
+        console.warn('[list_restaurant_reservations] Resy list failed:', formatResyError(err));
+      }
+
+      const byToken = new Map<
+        string,
+        { venue_name: string; date: string; time: string; party_size: number }
+      >();
+      for (const b of dbBookings) {
+        byToken.set(b.resy_token, {
+          venue_name: b.venue_name,
+          date: b.reservation_date,
+          time: b.reservation_time,
+          party_size: b.party_size,
+        });
+      }
+      for (const r of resyUpcoming) {
+        if (!byToken.has(r.resy_token)) {
+          byToken.set(r.resy_token, {
+            venue_name: r.venue_name,
+            date: r.date,
+            time: r.time,
+            party_size: r.party_size,
+          });
+        }
+      }
+
+      const reservations = [...byToken.entries()].map(([resy_token, item], idx) => ({
+        index: idx + 1,
+        resy_token,
+        ...item,
+      }));
+      const formatted = reservationsListToSMS(reservations);
+      return JSON.stringify({
+        success: true,
+        formatted,
+        reservations,
+      });
+    } catch (err) {
+      return JSON.stringify({ error: true, message: formatResyError(err) });
+    }
+  }
+
+  if (toolName === 'cancel_restaurant_reservation') {
+    if (!isResyConfigured()) {
+      return JSON.stringify({
+        error: true,
+        message: 'Dining is temporarily unavailable. Try again later.',
+      });
+    }
+
+    const resyTokenInput = (input.resy_token as string | undefined)?.trim();
+    const venueName = (input.venue_name as string | undefined)?.trim();
+    const date = (input.date as string | undefined)?.trim();
+
+    try {
+      const dbBookings = await getActiveRestaurantBookings(user.id);
+      let resyUpcoming: Awaited<ReturnType<typeof listUpcomingReservations>> = [];
+      try {
+        resyUpcoming = await listUpcomingReservations();
+      } catch (err) {
+        console.warn('[cancel_restaurant_reservation] Resy list failed:', formatResyError(err));
+      }
+
+      const pick = resolveReservationToCancel({
+        resyToken: resyTokenInput,
+        venueName,
+        date,
+        dbBookings,
+        resyUpcoming,
+      });
+
+      if (pick.kind === 'none') {
+        return JSON.stringify({ error: true, message: pick.message });
+      }
+
+      if (pick.kind === 'ambiguous') {
+        const formatted = reservationsListToSMS(pick.options);
+        return JSON.stringify({
+          error: true,
+          ambiguous: true,
+          formatted: `${formatted}\n\nWhich one should I cancel? Reply with the number or restaurant name.`,
+          options: pick.options,
+        });
+      }
+
+      await cancelReservation(pick.resy_token);
+      await markRestaurantBookingCancelled({ userId: user.id, resyToken: pick.resy_token });
+
+      const formatted = formatReservationCancellationSMS({
+        venueName: pick.venue_name,
+        date: pick.date,
+        time: pick.time,
+      });
+
+      console.log(`[cancel_restaurant_reservation] cancelled ${pick.label}`);
+
+      return JSON.stringify({ success: true, formatted, cancelled: pick.label });
+    } catch (err) {
+      const message = formatResyError(err);
+      console.error(`[cancel_restaurant_reservation] ${message}`);
+      return JSON.stringify({ error: true, message });
     }
   }
 

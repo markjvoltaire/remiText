@@ -178,4 +178,37 @@ export const tools: Anthropic.Tool[] = [
       required: ['venue_id', 'date', 'time'],
     },
   },
+  {
+    name: 'list_restaurant_reservations',
+    description:
+      'List the user\'s upcoming restaurant reservations booked through Remi (and on the Resy account). Call when they ask what reservations they have, upcoming dinners, or before cancelling if unclear which one.',
+    input_schema: {
+      type: 'object',
+      properties: {},
+      required: [],
+    },
+  },
+  {
+    name: 'cancel_restaurant_reservation',
+    description:
+      'Cancel an existing Resy table reservation. Call when the user wants to cancel a restaurant booking (e.g. "cancel my reservation", "cancel dinner at Bondi", "cancel the 7pm"). Use resy_token if known; otherwise venue_name and optional date to match. If multiple match, the tool returns a numbered list — ask the user to pick one, then call again with resy_token or venue_name + date.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        resy_token: {
+          type: 'string',
+          description: 'Resy reservation token (rr://...) from a prior booking or list_restaurant_reservations',
+        },
+        venue_name: {
+          type: 'string',
+          description: 'Restaurant name to match, e.g. "Bondi Sushi"',
+        },
+        date: {
+          type: 'string',
+          description: 'Reservation date YYYY-MM-DD to disambiguate',
+        },
+      },
+      required: [],
+    },
+  },
 ];

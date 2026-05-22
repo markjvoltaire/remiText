@@ -126,3 +126,100 @@ export async function clearPendingOrder(userId) {
     })
         .eq('id', userId);
 }
+export async function saveFlightBooking(params) {
+    const { data, error } = await supabase
+        .from('flight_bookings')
+        .insert({
+        user_id: params.userId,
+        status: params.status,
+        booking_reference: params.bookingReference,
+        duffel_order_id: params.duffelOrderId,
+        duffel_offer_id: params.duffelOfferId ?? null,
+        origin: params.origin ?? null,
+        destination: params.destination ?? null,
+        departure_date: params.departureDate ?? null,
+        return_date: params.returnDate ?? null,
+        airline: params.airline ?? null,
+        total_amount: params.totalAmount ?? null,
+        total_currency: params.totalCurrency ?? null,
+        stripe_payment_intent_id: params.stripePaymentIntentId ?? null,
+        metadata: params.metadata ?? null,
+    })
+        .select('id')
+        .single();
+    if (error) {
+        console.warn(`[supabase] saveFlightBooking failed user=${params.userId} order=${params.duffelOrderId}:`, error.message);
+        return null;
+    }
+    console.log(`[supabase] flight_booking saved id=${data.id} user=${params.userId} status=${params.status} ref=${params.bookingReference}`);
+    return data.id;
+}
+/** Mark a held flight as paid/confirmed after confirm_booking or book_flight on a prior hold. */
+export async function confirmFlightBooking(params) {
+    const { error } = await supabase
+        .from('flight_bookings')
+        .update({
+        status: 'confirmed',
+        stripe_payment_intent_id: params.stripePaymentIntentId ?? null,
+    })
+        .eq('user_id', params.userId)
+        .eq('duffel_order_id', params.duffelOrderId);
+    if (error) {
+        console.warn(`[supabase] confirmFlightBooking failed user=${params.userId} order=${params.duffelOrderId}:`, error.message);
+        return;
+    }
+    console.log(`[supabase] flight_booking confirmed order=${params.duffelOrderId} user=${params.userId}`);
+}
+export async function saveRestaurantBooking(params) {
+    const { data, error } = await supabase
+        .from('restaurant_bookings')
+        .insert({
+        user_id: params.userId,
+        venue_id: params.venueId,
+        venue_name: params.venueName,
+        reservation_date: params.reservationDate,
+        reservation_time: params.reservationTime,
+        party_size: params.partySize,
+        confirmation_code: params.confirmationCode ?? null,
+        resy_token: params.resyToken,
+        location: params.location ?? null,
+        seating_type: params.seatingType ?? null,
+        metadata: params.metadata ?? null,
+    })
+        .select('id')
+        .single();
+    if (error) {
+        console.warn(`[supabase] saveRestaurantBooking failed user=${params.userId} venue=${params.venueId}:`, error.message);
+        return null;
+    }
+    console.log(`[supabase] restaurant_booking saved id=${data.id} user=${params.userId} venue=${params.venueName} ${params.reservationDate} ${params.reservationTime}`);
+    return data.id;
+}
+export async function getActiveRestaurantBookings(userId, limit = 10) {
+    const { data, error } = await supabase
+        .from('restaurant_bookings')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('status', 'active')
+        .order('reservation_date', { ascending: true })
+        .order('created_at', { ascending: false })
+        .limit(limit);
+    if (error) {
+        console.warn(`[supabase] getActiveRestaurantBookings failed user=${userId}:`, error.message);
+        return [];
+    }
+    return (data ?? []);
+}
+export async function markRestaurantBookingCancelled(params) {
+    const { error } = await supabase
+        .from('restaurant_bookings')
+        .update({ status: 'cancelled', cancelled_at: new Date().toISOString() })
+        .eq('user_id', params.userId)
+        .eq('resy_token', params.resyToken)
+        .eq('status', 'active');
+    if (error) {
+        console.warn(`[supabase] markRestaurantBookingCancelled failed user=${params.userId} token=${params.resyToken}:`, error.message);
+        return;
+    }
+    console.log(`[supabase] restaurant_booking cancelled token=${params.resyToken} user=${params.userId}`);
+}
