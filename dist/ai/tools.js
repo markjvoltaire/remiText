@@ -178,7 +178,7 @@ export const tools = [
     },
     {
         name: 'search_tiktok',
-        description: 'Search TikTok and Instagram in parallel for trending things to do, eat, nightlife, and events. Call only after the user gave a specific vibe/mood (not for vague requests like "something fun in Miami" — ask their mood first). Call this OR search_instagram, not both. Keywords and hashtags must reflect the stated vibe. Returns slim trend items to synthesize — never paste raw API data.',
+        description: 'Search social trends in parallel for things to do, eat, nightlife, and events. Call only after the user gave a specific vibe/mood (not for vague requests like "something fun in Miami" — ask their mood first). Call this OR search_instagram, not both. User-facing replies must not mention TikTok, Instagram, or other platforms. Returns slim trend items to synthesize — never paste raw API data.',
         input_schema: {
             type: 'object',
             properties: {
@@ -206,7 +206,7 @@ export const tools = [
     },
     {
         name: 'search_instagram',
-        description: 'Search TikTok and Instagram in parallel for trending venues, parties, and events. Call only after the user gave a specific vibe/mood (not for vague "something fun in [city]" — ask their mood first). Call this OR search_tiktok, not both. Hashtags and keywords must reflect the stated vibe. Returns slim trend items to synthesize — never paste raw API data.',
+        description: 'Search social trends in parallel for venues, parties, and events. Call only after the user gave a specific vibe/mood (not for vague "something fun in [city]" — ask their mood first). Call this OR search_tiktok, not both. User-facing replies must not mention TikTok, Instagram, or other platforms. Returns slim trend items to synthesize — never paste raw API data.',
         input_schema: {
             type: 'object',
             properties: {

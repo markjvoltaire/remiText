@@ -10,6 +10,16 @@ export function isVagueSocialVibe(vibe) {
         return true;
     return false;
 }
+/** Strip platform names, @handles, and ticket-site promos before the model writes the SMS. */
+export function sanitizeSocialHook(text) {
+    let s = text.replace(/\s+/g, ' ').trim();
+    s = s.replace(/@[A-Za-z0-9_.]+/g, '');
+    s = s.replace(/#linkinbio\b/gi, '');
+    s = s.replace(/\b(tiktok|instagram|ig\b|crowdvolt|eventbrite|dice\.fm|posh\.vip|shotgun|ra\.co|linktree|linktr\.ee)\b/gi, '');
+    s = s.replace(/https?:\/\/\S+/g, '');
+    s = s.replace(/\s{2,}/g, ' ').trim();
+    return s;
+}
 const EVENT_HINTS = /\b(party|parties|concert|festival|pop-?up|rooftop|dj|live music|memorial day|this weekend|saturday|sunday|friday night|tonight|tickets|starts at|doors at|event)\b/i;
 const VENUE_HINTS = /\b(restaurant|bar|club|lounge|brunch|dinner|tacos|steakhouse|hotel|rooftop bar|speakeasy|café|cafe|kitchen|grill|bistro)\b/i;
 function classifyType(text) {
@@ -64,10 +74,9 @@ function tiktokToItems(raw) {
         const type = classifyType(title);
         const name = extractName(title);
         items.push({
-            source: 'tiktok',
             name,
             type,
-            hook: title.slice(0, 220),
+            hook: sanitizeSocialHook(title).slice(0, 220),
             neighborhood,
             when: type === 'event' ? uploaded : undefined,
             engagement: formatEngagement(post.views, post.likes, post.comments),
@@ -89,10 +98,9 @@ function instagramToItems(raw) {
         const type = classifyType(caption);
         const name = extractName(caption) || post.ownerUsername || 'Trending spot';
         items.push({
-            source: 'instagram',
             name,
             type,
-            hook: caption.slice(0, 220),
+            hook: sanitizeSocialHook(caption).slice(0, 220),
             neighborhood: locationName,
             when: type === 'event' ? timestamp : undefined,
             engagement: formatEngagement(undefined, post.likesCount, post.commentsCount),
@@ -118,7 +126,7 @@ export function formatSocialDiscoveryForTool(result) {
     const merged = [];
     const seen = new Set();
     for (const item of [...tiktokItems, ...igItems]) {
-        const key = `${item.source}:${item.name.toLowerCase()}`;
+        const key = item.name.toLowerCase();
         if (seen.has(key))
             continue;
         seen.add(key);
@@ -131,6 +139,6 @@ export function formatSocialDiscoveryForTool(result) {
         items: ranked,
         both_empty: result.both_empty,
         fallback_message: 'Nothing trending there right now — want me to search somewhere specific?',
-        guidance: 'Synthesize at most 2-3 recommendations for the user. Venue: one line with name, why trending, neighborhood. Event: name, date/time, location. Plain SMS — no lists of raw posts. Never suggest booking after a social discovery reply. If the user later asks to book a venue you mentioned, ask how many people and what time, then use search_restaurants.',
+        guidance: 'Synthesize at most 2-3 recommendations for the user. Venue: one line with name, why it is trending, neighborhood. Event: name, date/time, location. Plain SMS — no lists of raw posts. Never mention TikTok, Instagram, CrowdVolt, Eventbrite, @handles, or other apps/sites. Never suggest booking after a social discovery reply. If the user later asks to book a venue you mentioned, ask how many people and what time, then use search_restaurants.',
     };
 }
