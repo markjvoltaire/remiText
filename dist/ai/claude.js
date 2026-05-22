@@ -5,8 +5,8 @@ import { chargeViaSPT, refundPaymentIntent, isStripeConfigurationError } from '.
 import { offersToSMS, formatHeldOrderConfirmationSMS, sortFlightOffersByPrice, } from '../utils/formatFlights.js';
 import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
 import { formatLastRestaurantSearchForPrompt, summarizeVenuesForContext, slimVenuesForTool } from '../utils/restaurantSearchContext.js';
-import { restaurantsToSMS, restaurantDetailToSMS } from '../utils/formatRestaurants.js';
-import { searchRestaurants, getRestaurantAvailability, isResyConfigured, formatResyError, ResyNotConfiguredError, } from '../services/resy.js';
+import { restaurantsToSMS, restaurantDetailToSMS, formatReservationConfirmationSMS, } from '../utils/formatRestaurants.js';
+import { searchRestaurants, getRestaurantAvailability, reserveRestaurantTable, findVenueSlotByTime, isResyConfigured, formatResyError, ResyNotConfiguredError, ResyApiError, } from '../services/resy.js';
 import { computeAllInPrice, formatMoneyFromCents, logPriceBreakdown } from '../utils/pricing.js';
 import { setLastFlightSearch, clearLastFlightSearch, setLastRestaurantSearch, setPendingOrder, clearPendingOrder, } from '../services/supabase.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
@@ -116,9 +116,9 @@ Rules:
 - If pending restaurant options are listed in context below, use them ONLY for venue selection (when the user picks by name, position, or image reply). If the user's current message asks for a different cuisine, neighborhood, date, party size, or city than the cached search params, you MUST call search_restaurants again with the new parameters — do NOT relabel cached venues as a different cuisine.
 - If the user's message includes [Context: ...] indicating they replied to a specific preview image, treat that option as their selection — do not ask "which one?"
 - When the user asks "tell me more", "more info", "what's it like", "story", or "what to expect" about a specific restaurant they selected (via image reply or by name/position), DO NOT call get_restaurant_availability. Instead write a SHORT 2-3 sentence brief — cuisine, vibe, neighborhood, what to expect — using the facts in the [Context: ...] block plus general knowledge ONLY for well-known venues. Never invent dishes, chefs, awards, or history. End with one short follow-up like "Want to see times?".
-- Only call get_restaurant_availability when the user asks for times, availability, reservations, or affirms a "Want to see times?" follow-up.
+- Only call get_restaurant_availability when the user asks for times, availability, or affirms a "Want to see times?" follow-up.
 - Before taking action on a specific flight, restate the exact flight (airline, time, price) and ask ONE question: "HOLD or BOOK?"
-- If the user asks to book or reserve a restaurant table, tell them you can show availability today and full Resy booking is coming soon. Do not attempt to book.
+- Restaurant booking: after the user picks a restaurant AND a specific time, restate venue + date + time + party size and ask ONE question: "Book it?" or "Want me to reserve it?". On clear yes (book, reserve, yes, do it, lock it in), call book_restaurant_table with venue_id, date, party_size, and time from the latest search.
 
 Intent recognition (only after you have just asked "HOLD or BOOK?" on a specific flight):
 - BOOK intent (call book_flight with the matching offer_id): "BOOK", "book it", "book please", "please book", "get it", "buy it", "purchase", "lock it in", "do it", "go ahead", "yes", "yep", "yeah", "sure", "ok", "okay", "let's go", "confirm".
@@ -137,6 +137,7 @@ Tool routing:
 - Flight requests → search_flights, hold_flight, book_flight, confirm_booking as appropriate.
 - Restaurant / table / dinner availability → search_restaurants. If location is missing, call get_user_location first when they may have shared Find My location; derive a city from coordinates or ask which city.
 - User picks a restaurant from results → get_restaurant_availability with venue_id from the latest search.
+- User confirms a restaurant reservation → book_restaurant_table with venue_id, date, party_size, and time from the latest search.
 - BOOK intent → book_flight (charges the user and creates the order in one step; works for any carrier, including Frontier and other instant-payment airlines).
 - HOLD intent → hold_flight. If hold_flight returns { error: true, instant_only: true }, tell the user this airline requires instant payment and ask if they want to BOOK now; on BOOK affirmative call book_flight.
 - For book_flight / hold_flight, always use an offer_id from the "offers" array in the latest search (or the pending options list in context). Never invent flights, prices, or flight numbers.
@@ -146,7 +147,8 @@ Output formatting:
 - When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat, paraphrase, or omit options (count must match the number of image cards). Append one follow-up line: "Which one?" or "Want me to book one?"
 - When search_restaurants returns results with a "formatted" field and no "error", use "formatted" as your reply verbatim. Never say search failed when formatted is present. Append one follow-up line: "Which one?" or "Want times for one?"
 - When search_restaurants returns { error: true, message }, relay the message to the user briefly; do not invent a generic failure if a specific message is provided.
-- When get_restaurant_availability returns results, use the "formatted" field as your reply verbatim.
+- When get_restaurant_availability returns results, use the "formatted" field as your reply verbatim. Append: "Reply with a time to book (e.g. 7:00 PM)."
+- When book_restaurant_table returns successfully, use the "formatted" field as your reply verbatim.
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
 - Format prices as "$X" not "$X.XX" unless cents matter.
@@ -632,6 +634,14 @@ async function executeTool(toolName, input, user, ctx) {
                 });
             }
             const formatted = restaurantDetailToSMS(venue);
+            if (user.last_restaurant_search?.search_params) {
+                const refreshedVenues = (user.last_restaurant_search.venues ?? []).map((v) => v.venue_id === venueId ? summarizeVenuesForContext([venue])[0] : v);
+                await setLastRestaurantSearch(user.id, {
+                    ...user.last_restaurant_search,
+                    venues: refreshedVenues,
+                    updated_at: new Date().toISOString(),
+                });
+            }
             return JSON.stringify({ formatted, venue });
         }
         catch (err) {
@@ -642,6 +652,93 @@ async function executeTool(toolName, input, user, ctx) {
                 });
             }
             return JSON.stringify({ error: true, message: formatResyError(err) });
+        }
+    }
+    if (toolName === 'book_restaurant_table') {
+        if (!isResyConfigured()) {
+            return JSON.stringify({
+                error: true,
+                message: 'Dining search is temporarily unavailable. Try again later.',
+            });
+        }
+        const venueId = input.venue_id;
+        const time = input.time?.trim();
+        const searchParams = user.last_restaurant_search?.search_params;
+        const partySize = input.party_size ?? searchParams?.party_size ?? 2;
+        const date = input.date || searchParams?.date;
+        if (!date || !time) {
+            return JSON.stringify({
+                error: true,
+                message: 'Need a date and time to book. Show availability first, then ask the user to pick a time.',
+            });
+        }
+        const allowedIds = user.last_restaurant_search?.venues?.map((v) => v.venue_id) ?? [];
+        if (allowedIds.length > 0 && !allowedIds.includes(venueId)) {
+            return JSON.stringify({
+                error: true,
+                message: 'That venue_id is not in the latest search. Call search_restaurants again, then book only for a venue from those results.',
+            });
+        }
+        try {
+            const venue = await getRestaurantAvailability({
+                venueId,
+                date,
+                partySize,
+                location: searchParams?.location,
+            });
+            if (!venue) {
+                return JSON.stringify({
+                    error: true,
+                    message: `No availability for that restaurant on ${date} for ${partySize}. Try another date or spot.`,
+                });
+            }
+            const slot = findVenueSlotByTime(venue, time);
+            if (!slot?.config_token) {
+                const sample = venue.slots
+                    .slice(0, 5)
+                    .map((s) => s.time)
+                    .filter(Boolean)
+                    .join(', ');
+                return JSON.stringify({
+                    error: true,
+                    message: `Couldn't match "${time}" at ${venue.name}. Available times include: ${sample || 'none'}.`,
+                });
+            }
+            const booked = await reserveRestaurantTable({
+                configToken: slot.config_token,
+                date,
+                partySize,
+            });
+            const formatted = formatReservationConfirmationSMS({
+                venueName: venue.name,
+                date,
+                time: slot.time,
+                partySize,
+                confirmation: booked.confirmation,
+                seatingType: slot.slot_type,
+            });
+            console.log(`[book_restaurant_table] booked venue=${venueId} time=${slot.time} conf=${booked.confirmation ?? 'n/a'}`);
+            return JSON.stringify({
+                success: true,
+                formatted,
+                confirmation: booked.confirmation,
+                venue_name: venue.name,
+                time: slot.time,
+            });
+        }
+        catch (err) {
+            const message = formatResyError(err);
+            console.error(`[book_restaurant_table] ${message}`);
+            const slotGone = err instanceof ResyApiError &&
+                (err.status === 410 ||
+                    /no longer available|slot|taken|invalid book token/i.test(err.message));
+            return JSON.stringify({
+                error: true,
+                slot_taken: slotGone,
+                message: slotGone
+                    ? `That time just got taken. Want me to pull fresh times for ${time}?`
+                    : message,
+            });
         }
     }
     throw new Error(`Unknown tool: ${toolName}`);

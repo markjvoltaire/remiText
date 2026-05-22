@@ -244,6 +244,212 @@ async function resyGet(path: string, params?: Record<string, string>): Promise<u
   throw new ResyApiError(500, `Resy API returned 500 after retries (GET ${path})`);
 }
 
+async function resyPostJson(path: string, body: Record<string, unknown>): Promise<unknown> {
+  await ensureAuth();
+  const url = `${RESY_BASE_URL}${path}`;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await delay(1500 * attempt);
+
+    let res = await fetch(url, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if ((res.status === 401 || res.status === 419) && attempt === 0) {
+      await refreshAuth();
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+    const text = await res.text();
+    if (res.status === 500) continue;
+    if (!res.ok) throw new ResyApiError(res.status, text);
+    return JSON.parse(text) as unknown;
+  }
+  throw new ResyApiError(500, `Resy API returned 500 after retries (POST ${path})`);
+}
+
+async function resyPostForm(path: string, fields: Record<string, string>): Promise<unknown> {
+  await ensureAuth();
+  const url = `${RESY_BASE_URL}${path}`;
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await delay(1500 * attempt);
+
+    let res = await fetch(url, {
+      method: 'POST',
+      headers: { ...authHeaders(), 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(fields).toString(),
+    });
+    if ((res.status === 401 || res.status === 419) && attempt === 0) {
+      await refreshAuth();
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(fields).toString(),
+      });
+    }
+    const text = await res.text();
+    if (res.status === 500) continue;
+    if (!res.ok) throw new ResyApiError(res.status, text);
+    return JSON.parse(text) as unknown;
+  }
+  throw new ResyApiError(500, `Resy API returned 500 after retries (POST ${path})`);
+}
+
+export interface ResyBookingDetails {
+  bookToken: string;
+  paymentMethodId: number;
+  cancellationText?: string;
+}
+
+export interface ResyBookedReservation {
+  resyToken: string;
+  confirmation?: string;
+}
+
+export interface ReserveRestaurantTableParams {
+  configToken: string;
+  date: string;
+  partySize: number;
+  paymentMethodId?: number;
+}
+
+function parsePaymentMethodId(value: unknown): number | undefined {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number.parseInt(value, 10);
+  return undefined;
+}
+
+function pickPaymentMethodId(
+  methods: Array<{ id?: unknown; is_default?: boolean }>,
+  override?: number,
+): number {
+  if (override != null) return override;
+
+  const envId = parsePaymentMethodId(process.env.RESY_PAYMENT_METHOD_ID?.trim());
+  if (envId != null) return envId;
+
+  const defaultMethod = methods.find((m) => m.is_default);
+  const first = methods[0];
+  const id = parsePaymentMethodId(defaultMethod?.id ?? first?.id);
+  if (id == null) {
+    throw new ResyAuthError(
+      'No Resy payment method on file. Add a card in Resy or set RESY_PAYMENT_METHOD_ID.',
+    );
+  }
+  return id;
+}
+
+/** Step 1 of booking: exchange config token (from /4/find) for a short-lived book token. */
+export async function getBookingDetails(
+  configToken: string,
+  date: string,
+  partySize: number,
+): Promise<ResyBookingDetails> {
+  if (!isResyConfigured()) throw new ResyNotConfiguredError();
+
+  const data = (await resyPostJson('/3/details', {
+    config_id: configToken,
+    day: date,
+    party_size: partySize,
+  })) as {
+    book_token?: { value?: string };
+    user?: { payment_methods?: Array<{ id?: unknown; is_default?: boolean }> };
+    cancellation?: { display_text?: string };
+  };
+
+  const bookToken = data.book_token?.value?.trim();
+  if (!bookToken) {
+    throw new ResyApiError(400, 'Resy /3/details did not return a book_token');
+  }
+
+  const methods = data.user?.payment_methods ?? [];
+  const paymentMethodId = pickPaymentMethodId(methods);
+
+  return {
+    bookToken,
+    paymentMethodId,
+    cancellationText: data.cancellation?.display_text,
+  };
+}
+
+/** Step 2 of booking: commit reservation with book token + Resy payment method. */
+export async function bookReservation(
+  bookToken: string,
+  paymentMethodId: number,
+): Promise<ResyBookedReservation> {
+  if (!isResyConfigured()) throw new ResyNotConfiguredError();
+
+  const data = (await resyPostForm('/3/book', {
+    book_token: bookToken,
+    struct_payment_method: JSON.stringify({ id: paymentMethodId }),
+    source_id: 'resy.com-venue-details',
+    venue_marketing_opt_in: '0',
+  })) as { resy_token?: string; confirmation?: string; reservation_id?: string };
+
+  const resyToken = data.resy_token?.trim();
+  if (!resyToken) {
+    throw new ResyApiError(400, 'Resy /3/book did not return resy_token');
+  }
+
+  return {
+    resyToken,
+    confirmation: data.confirmation ?? data.reservation_id,
+  };
+}
+
+export async function reserveRestaurantTable(
+  params: ReserveRestaurantTableParams,
+): Promise<ResyBookedReservation & { paymentMethodId: number }> {
+  const details = await getBookingDetails(params.configToken, params.date, params.partySize);
+  const booked = await bookReservation(
+    details.bookToken,
+    params.paymentMethodId ?? details.paymentMethodId,
+  );
+  return { ...booked, paymentMethodId: params.paymentMethodId ?? details.paymentMethodId };
+}
+
+/** Normalize user time phrases (7pm, 7:00 PM) to match slot labels from Resy. */
+export function normalizeReservationTimeLabel(input: string): string | null {
+  const s = input.trim().toLowerCase().replace(/\s+/g, ' ');
+  const match = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i);
+  if (!match) return null;
+
+  let hour = Number.parseInt(match[1]!, 10);
+  const minute = match[2] ?? '00';
+  const period = match[3]!.toUpperCase() as 'AM' | 'PM';
+
+  if (period === 'PM' && hour < 12) hour += 12;
+  if (period === 'AM' && hour === 12) hour = 0;
+
+  const outPeriod = hour >= 12 ? 'PM' : 'AM';
+  const h12 = hour % 12 || 12;
+  return `${h12}:${minute} ${outPeriod}`;
+}
+
+export function slotMatchesUserTime(slotTime: string, userTime: string): boolean {
+  const slot = slotTime.trim();
+  const raw = userTime.trim();
+  if (!slot || !raw) return false;
+  if (slot.toLowerCase() === raw.toLowerCase()) return true;
+
+  const normalized = normalizeReservationTimeLabel(raw);
+  if (normalized && slot === normalized) return true;
+
+  return slot.toLowerCase().startsWith(raw.toLowerCase());
+}
+
+export function findVenueSlotByTime(
+  venue: { slots: Array<{ time: string; config_token: string; slot_type: string }> },
+  time: string,
+): { time: string; config_token: string; slot_type: string } | null {
+  return venue.slots.find((s) => slotMatchesUserTime(s.time, time)) ?? null;
+}
+
 export function resolveLocation(location: string): [number, number] {
   const locLower = location.trim().toLowerCase();
   if (locLower in CITY_COORDS) return CITY_COORDS[locLower]!;

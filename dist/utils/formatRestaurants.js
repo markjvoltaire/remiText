@@ -59,3 +59,8 @@ export function restaurantDetailToSMS(venue) {
     }
     return lines.join('\n');
 }
+export function formatReservationConfirmationSMS(params) {
+    const seating = params.seatingType && params.seatingType !== 'Standard' ? ` (${params.seatingType})` : '';
+    const conf = params.confirmation ? ` Confirmation: ${params.confirmation}.` : '';
+    return `Booked ${params.venueName} for ${params.partySize} on ${params.date} at ${params.time}${seating}.${conf} You'll get a Resy confirmation email shortly.`;
+}

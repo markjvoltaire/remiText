@@ -39,3 +39,5 @@ services:
         sync: false
       - key: RESY_AUTH_TOKEN
         sync: false
+      - key: RESY_PAYMENT_METHOD_ID
+        sync: false

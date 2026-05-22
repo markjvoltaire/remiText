@@ -141,4 +141,30 @@ export const tools = [
             required: ['venue_id', 'date'],
         },
     },
+    {
+        name: 'book_restaurant_table',
+        description: 'Book a Resy table for a specific time slot from the latest search. Call when the user clearly wants to reserve (e.g. book it, reserve, yes book, lock it in) after they picked a restaurant and time. Requires venue_id and time from the latest search_restaurants or get_restaurant_availability results.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                venue_id: {
+                    type: 'number',
+                    description: 'Resy venue ID from the latest restaurant search',
+                },
+                date: {
+                    type: 'string',
+                    description: 'Reservation date YYYY-MM-DD (use latest search date if known)',
+                },
+                party_size: {
+                    type: 'number',
+                    description: 'Number of guests. Defaults to latest search party size.',
+                },
+                time: {
+                    type: 'string',
+                    description: 'Reservation time exactly as shown in availability, e.g. "7:00 PM" or "7pm"',
+                },
+            },
+            required: ['venue_id', 'date', 'time'],
+        },
+    },
 ];

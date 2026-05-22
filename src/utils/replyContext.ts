@@ -50,7 +50,8 @@ export function buildPreviewReplyContext(
       'Treat this as their selected restaurant. Do not ask which restaurant they mean.',
       'Default action for "tell me more", "more info", "what\'s it like", "story", "what to expect": write a SHORT 2-3 sentence brief in plain text — cuisine, vibe, neighborhood, and what diners can expect. End with one short follow-up question like "Want to see times?".',
       'When describing the venue, you MAY use general knowledge for well-known restaurants. If you do NOT confidently know this specific venue, describe it factually using only the cuisine, neighborhood, price, and rating above — never invent specific dishes, chef names, awards, or history.',
-      'Only call get_restaurant_availability when the user explicitly asks for times, availability, reservation slots, or says yes/sure to "Want to see times?".',
+      'Only call get_restaurant_availability when the user explicitly asks for times, availability, or says yes/sure to "Want to see times?".',
+      'If they want to book/reserve after picking a time, restate venue + time and ask "Book it?" — on yes call book_restaurant_table.',
     ].join(' ');
   }
 

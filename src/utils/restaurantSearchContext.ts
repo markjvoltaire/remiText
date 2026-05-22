@@ -57,6 +57,6 @@ export function formatLastRestaurantSearchForPrompt(
     'USE THIS CONTEXT ONLY when the user is picking a venue from the list above (by name, position like "first/second", or by replying to a preview image).',
     'DO NOT reuse this list as a reply if the user is asking for a NEW search — for example a different cuisine, neighborhood, date, party size, or city. In that case you MUST call search_restaurants with the new parameters.',
     'NEVER relabel these venues as a different cuisine or different date than the parameters above. If the user asks for sushi and the cached list is not sushi, call search_restaurants again.',
-    'If the user asks to book or reserve a table, tell them Remi can show availability today and full booking is coming soon — do not attempt to book.',
+    'If the user wants to book, use book_restaurant_table with venue_id, date, party_size, and the exact time they chose from the slots above.',
   ].join('\n');
 }
