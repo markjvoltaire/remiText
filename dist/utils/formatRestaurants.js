@@ -6,10 +6,17 @@ function priceLabel(priceRange) {
     return ' ' + '$'.repeat(Math.min(priceRange, 4));
 }
 function formatSlotTimes(slots, limit) {
-    const times = slots
-        .map((s) => s.time)
-        .filter(Boolean)
-        .slice(0, limit);
+    const seen = new Set();
+    const times = [];
+    for (const slot of slots) {
+        const t = slot.time?.trim();
+        if (!t || seen.has(t))
+            continue;
+        seen.add(t);
+        times.push(t);
+        if (times.length >= limit)
+            break;
+    }
     if (times.length === 0)
         return 'no times';
     return times.join(', ');

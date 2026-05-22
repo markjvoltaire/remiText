@@ -370,6 +370,76 @@ function filterByQuery(venues: RestaurantVenue[], query: string): RestaurantVenu
   });
 }
 
+/** Trailing neighborhood/city tokens Resy often appends to chain venue names. */
+const VENUE_NAME_LOCATION_SUFFIXES = [
+  'south beach',
+  'miami beach',
+  'coral gables',
+  'design district',
+  'downtown miami',
+  'brickell miami',
+  'midtown miami',
+  'wynwood',
+  'brickell',
+  'midtown',
+  'miami',
+  'manhattan',
+  'brooklyn',
+  'williamsburg',
+  'soho',
+  'chelsea',
+  'tribeca',
+  'west village',
+  'east village',
+  'harlem',
+  'nyc',
+];
+
+/**
+ * Canonical key for deduping multi-location chains (e.g. three "Bondi Sushi" outposts).
+ */
+export function restaurantBrandKey(name: string): string {
+  let base = name.trim().toLowerCase();
+  const dashParts = base.split(/\s*[-–—]\s*/);
+  if (dashParts.length > 1) {
+    base = dashParts[0]!.trim();
+  }
+
+  const sortedSuffixes = [...VENUE_NAME_LOCATION_SUFFIXES].sort((a, b) => b.length - a.length);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const suffix of sortedSuffixes) {
+      if (base.endsWith(` ${suffix}`)) {
+        base = base.slice(0, -(suffix.length + 1)).trim();
+        changed = true;
+        break;
+      }
+    }
+  }
+
+  return base;
+}
+
+/** Keep the first venue per brand so recommendations show distinct restaurants. */
+export function dedupeVenuesByBrand(
+  venues: RestaurantVenue[],
+  maxResults = 5,
+): RestaurantVenue[] {
+  const seen = new Set<string>();
+  const out: RestaurantVenue[] = [];
+
+  for (const venue of venues) {
+    const key = restaurantBrandKey(venue.name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(venue);
+    if (out.length >= maxResults) break;
+  }
+
+  return out;
+}
+
 function parseFindResponse(data: unknown): RestaurantVenue[] {
   const results = (data as { results?: { venues?: ResyVenueRaw[] } })?.results;
   const rawVenues = results?.venues ?? [];
@@ -399,7 +469,8 @@ export async function searchRestaurants(
     party_size: String(params.partySize),
   });
 
-  return filterByQuery(venues, params.query ?? '');
+  const filtered = filterByQuery(venues, params.query ?? '');
+  return dedupeVenuesByBrand(filtered, 5);
 }
 
 export async function getRestaurantAvailability(

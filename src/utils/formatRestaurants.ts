@@ -9,10 +9,15 @@ function priceLabel(priceRange: number): string {
 }
 
 function formatSlotTimes(slots: RestaurantVenue['slots'], limit: number): string {
-  const times = slots
-    .map((s) => s.time)
-    .filter(Boolean)
-    .slice(0, limit);
+  const seen = new Set<string>();
+  const times: string[] = [];
+  for (const slot of slots) {
+    const t = slot.time?.trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    times.push(t);
+    if (times.length >= limit) break;
+  }
   if (times.length === 0) return 'no times';
   return times.join(', ');
 }

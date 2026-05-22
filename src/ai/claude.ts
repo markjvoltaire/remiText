@@ -739,7 +739,7 @@ async function executeTool(
         queryRelaxed = true;
       }
 
-      const surfaced = venues.slice(0, 5);
+      const surfaced = venues;
       let formatted = restaurantsToSMS(surfaced, { location, date, partySize });
       if (queryRelaxed && surfaced.length > 0) {
         formatted = `No "${query}" matches — open tables nearby:\n\n${formatted}`;
