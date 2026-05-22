@@ -45,10 +45,8 @@ import { getSharedFriendLocation } from '../services/imessage.js';
 import { nearestAirports } from '../utils/nearestAirport.js';
 import {
   generateFlightCardImage,
-  generateRestaurantCardImage,
   flightCardInputFromHeldOrder,
   flightCardInputFromOffer,
-  restaurantCardInputFromVenue,
   type PreviewCardImage,
 } from '../images/satori/index.js';
 import type {
@@ -160,7 +158,7 @@ Rules:
 - Keep replies short. Max 3 sentences unless you are pasting a multi-option list from tool output (flights or restaurants).
 - Plain text only: no Markdown, no asterisks (*), no bold/italics markers, no backticks.
 - When search_flights returns a formatted option list, every line block in that list matches one preview image (same count, cheapest-first order). Never shorten or drop options from that list.
-- When search_restaurants returns a formatted list, use it verbatim — do not reformat, paraphrase, or omit options. When preview images are attached, the numbered list in "formatted" must match the image count (same order).
+- When search_restaurants returns a formatted list, use it verbatim — do not reformat, paraphrase, or omit options.
 - Always resolve relative dates (e.g. "Friday", "tonight", "this Saturday") using today's date before calling search_flights or search_restaurants.
 - Decide whether the user wants a one-way or round-trip flight. If round-trip, collect both departure_date and return_date before calling search_flights.
 - If pending flight options are listed in context below, use them: when the user picks an airline or says first/second/third/fourth/fifth (by position), pick the matching offer_id. Do not ask for dates again if they already gave them or if those options already reflect the trip.
@@ -288,54 +286,6 @@ async function attachSearchPreviewCardsSafely(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[flightCardImage] preview skipped for ${tag}: ${msg}`);
-  }
-}
-
-async function attachSearchPreviewRestaurantCardsSafely(
-  ctx: AgentSessionContext,
-  venues: RestaurantVenue[],
-  meta: { date: string; partySize: number },
-  tag: string,
-): Promise<void> {
-  if (SEARCH_PREVIEW_CARD_LIMIT === 0 || venues.length === 0) return;
-
-  try {
-    const previewVenues = venues.slice(0, SEARCH_PREVIEW_CARD_LIMIT);
-    const images: Array<Awaited<ReturnType<typeof generateRestaurantCardImage>>> = [];
-    for (const [index, venue] of previewVenues.entries()) {
-      const input = restaurantCardInputFromVenue(venue, {
-        date: meta.date,
-        partySize: meta.partySize,
-        optionLabel: `Option ${index + 1}`,
-      });
-      const img = await generateRestaurantCardImage(input);
-      images.push(img);
-    }
-
-    let attached = 0;
-    for (const [index, img] of images.entries()) {
-      if (img) {
-        const venue = previewVenues[index];
-        ctx.attachments.push({
-          ...img,
-          ref: venue
-            ? {
-                kind: 'restaurant',
-                optionIndex: index,
-                entityId: String(venue.venue_id),
-                label: venue.name,
-              }
-            : undefined,
-        });
-        attached += 1;
-      }
-    }
-    if (attached > 0) {
-      console.log(`[restaurantCardImage] attached ${attached} preview(s) for ${tag}`);
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[restaurantCardImage] preview skipped for ${tag}: ${msg}`);
   }
 }
 
@@ -753,13 +703,6 @@ async function executeTool(
       if (!saved) {
         console.warn('[search_restaurants] results ok but last_restaurant_search not persisted (run Supabase migration?)');
       }
-
-      await attachSearchPreviewRestaurantCardsSafely(
-        ctx,
-        surfaced,
-        { date, partySize },
-        `search:${location}-${date}`,
-      );
 
       return JSON.stringify({ formatted, venues: slimVenuesForTool(surfaced) });
     } catch (err) {
