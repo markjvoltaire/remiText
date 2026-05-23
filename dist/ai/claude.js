@@ -18,6 +18,7 @@ import { formatSocialDiscoveryForTool, isVagueSocialVibe, } from '../utils/forma
 import { getSharedFriendLocation } from '../services/imessage.js';
 import { nearestAirports } from '../utils/nearestAirport.js';
 import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, } from '../images/satori/index.js';
+import { sessionModelRound, sessionToolLog } from '../utils/sessionLog.js';
 const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '5', 10) || 0));
 /** Cheapest first; when preview cards are enabled, same length as image count. */
 function surfacedSearchOffers(offers) {
@@ -998,7 +999,9 @@ export async function runAgentLoop(userMessage, history, user) {
         { role: 'user', content: userMessage },
     ];
     const ctx = { attachments: [] };
+    let modelRound = 0;
     while (true) {
+        modelRound += 1;
         const response = await createMessageWithRetries({
             model: 'claude-sonnet-4-6',
             max_tokens: 1024,
@@ -1008,26 +1011,41 @@ export async function runAgentLoop(userMessage, history, user) {
             messages,
         });
         if (response.stop_reason === 'end_turn') {
+            sessionModelRound({ round: modelRound, stopReason: 'end_turn' });
             const textBlock = response.content.find((b) => b.type === 'text');
             return { text: textBlock?.text ?? '', attachments: ctx.attachments };
         }
         if (response.stop_reason === 'tool_use') {
             const toolUseBlocks = response.content.filter((b) => b.type === 'tool_use');
+            sessionModelRound({
+                round: modelRound,
+                stopReason: 'tool_use',
+                toolNames: toolUseBlocks.map((b) => b.name),
+            });
             messages.push({ role: 'assistant', content: response.content });
             const toolResults = await Promise.all(toolUseBlocks.map(async (block) => {
+                const started = Date.now();
                 try {
-                    console.log(`[tool] ${block.name} input=${JSON.stringify(block.input)}`);
                     const result = await executeTool(block.name, block.input, user, ctx);
-                    console.log(`[tool] ${block.name} ok`);
+                    sessionToolLog(block.name, block.input, result, {
+                        ok: true,
+                        durationMs: Date.now() - started,
+                    });
                     return { type: 'tool_result', tool_use_id: block.id, content: result };
                 }
                 catch (err) {
                     const message = formatDuffelError(err);
-                    console.error(`[tool] ${block.name} error:`, message);
+                    const errorPayload = `Error: ${message}`;
+                    sessionToolLog(block.name, block.input, errorPayload, {
+                        ok: false,
+                        durationMs: Date.now() - started,
+                        isError: true,
+                    });
+                    console.error(`[tool] ${block.name} threw:`, message);
                     return {
                         type: 'tool_result',
                         tool_use_id: block.id,
-                        content: `Error: ${message}`,
+                        content: errorPayload,
                         is_error: true,
                     };
                 }
@@ -1035,6 +1053,7 @@ export async function runAgentLoop(userMessage, history, user) {
             messages.push({ role: 'user', content: toolResults });
             continue;
         }
+        sessionModelRound({ round: modelRound, stopReason: response.stop_reason ?? 'unknown' });
         throw new Error(`Unexpected stop_reason: ${response.stop_reason}`);
     }
 }

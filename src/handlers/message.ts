@@ -21,6 +21,7 @@ import {
 } from '../utils/replyContext.js';
 import type { PreviewCardImage, PreviewCardRef } from '../images/satori/index.js';
 import type { LastSentPreviewCards } from '../types.js';
+import { sessionAssistantLog, sessionTurnAbort, sessionTurnStart } from '../utils/sessionLog.js';
 
 function extractText(content: unknown): string {
   if (typeof content === 'string') return content;
@@ -121,6 +122,15 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
     }
   }
 
+  sessionTurnStart({
+    userId: user.id,
+    messageId: id,
+    contactKey,
+    inboundText: text,
+    agentInput: agentInput !== text ? agentInput : undefined,
+    historyCount: history.length,
+  });
+
   await appendMessage(user.id, 'user', agentInput);
 
   let agentResult: Awaited<ReturnType<typeof runAgentLoop>>;
@@ -132,10 +142,12 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
     if (isAnthropicCapacityError(err)) {
       const sorry =
         "Claude's API is temporarily overloaded. Please send your message again in a few seconds — I'll reply as soon as it's available.";
+      sessionAssistantLog(sorry);
       await appendMessage(user.id, 'assistant', sorry);
       await message.reply(sorry);
       return;
     }
+    sessionTurnAbort(messageText);
     throw err;
   }
 
@@ -145,6 +157,7 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
     `[agent] user=${user.id} reply_len=${reply.length} attachments=${agentResult.attachments.length}`,
   );
 
+  sessionAssistantLog(reply, { attachments: agentResult.attachments.length });
   await appendMessage(user.id, 'assistant', reply);
   const sendMeta = await sendReplyWithAttachments(space, message, reply, agentResult.attachments);
   await persistSentPreviewCards(user.id, agentResult.attachments, sendMeta);

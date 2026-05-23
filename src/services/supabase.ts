@@ -78,12 +78,21 @@ export async function getConversationHistory(userId: string): Promise<Conversati
   return (data as ConversationMessage[]).slice().reverse();
 }
 
+const CONVERSATION_LOG_ENABLED = process.env.REMI_CONVERSATION_LOG !== '0';
+const SESSION_LOG_ENABLED = process.env.REMI_SESSION_LOG !== '0';
+
 const CONVERSATION_LOG_MAX_CHARS = Math.max(
   200,
   Math.min(4000, Number.parseInt(process.env.REMI_CONVERSATION_LOG_MAX_CHARS ?? '2000', 10) || 2000),
 );
 
 function logConversationToRender(userId: string, role: 'user' | 'assistant', content: string): void {
+  if (!CONVERSATION_LOG_ENABLED) return;
+  // Session logs already print full turn detail; skip duplicate JSON blobs unless requested.
+  if (SESSION_LOG_ENABLED) {
+    console.log(`[conversation] ${role} user=${userId.slice(0, 8)} chars=${content.length}`);
+    return;
+  }
   const text =
     content.length > CONVERSATION_LOG_MAX_CHARS
       ? `${content.slice(0, CONVERSATION_LOG_MAX_CHARS)}…`
