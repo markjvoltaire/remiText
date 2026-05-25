@@ -114,14 +114,6 @@ function summarizeToolResult(toolName, result, parsed) {
                 lines.push(`${obj.reservations.length} reservation(s)`);
             break;
         }
-        case 'get_shared_location': {
-            if (obj.suggested_origin)
-                lines.push(`suggested_origin: ${String(obj.suggested_origin)}`);
-            if (Array.isArray(obj.nearest_airports)) {
-                lines.push(`nearest_airports: ${obj.nearest_airports.length}`);
-            }
-            break;
-        }
         default:
             break;
     }

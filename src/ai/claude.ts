@@ -68,8 +68,6 @@ import {
   formatSocialDiscoveryForTool,
   isVagueSocialVibe,
 } from '../utils/formatSocialRecommendations.js';
-import { getSharedFriendLocation } from '../services/imessage.js';
-import { nearestAirports } from '../utils/nearestAirport.js';
 import {
   generateFlightCardImage,
   flightCardInputFromHeldOrder,
@@ -220,7 +218,7 @@ Local recommendations (what's trending) — vibe required before searching:
 - Only call search_tiktok or search_instagram once they answer with a concrete vibe: music/scene (house, afrobeats, hip-hop, latin), activity type (beach day, boat, art), occasion (date night, romantic dinner, girls night, birthday), food/drink style (brunch, rooftop, speakeasy, clubs), or similar. "Fun" or "cool spots" alone is still too vague — ask again.
 - When vibe is clear, call exactly ONE of search_tiktok or search_instagram (not both). Pass location, vibe, and 1-2 TikTok keyword phrases + 1-2 Instagram hashtags that match that vibe (no # needed). Example after they say afrobeats clubs: search_tiktok with location "Miami", vibe "afrobeats clubs", keywords ["miami afrobeats nightlife"], instagram_hashtags ["miamiafrobeats", "miaminightlife"].
 - Flight requests → search_flights, hold_flight, book_flight, confirm_booking as appropriate.
-- Restaurant / table / dinner availability (booking intent) → search_restaurants. If location is missing, call get_user_location first when they may have shared Find My location; derive a city from coordinates or ask which city.
+- Restaurant / table / dinner availability (booking intent) → search_restaurants. If location is missing, ask which city.
 - User picks a restaurant from results → get_restaurant_availability with venue_id from the latest search.
 - User confirms a restaurant reservation → book_restaurant_table with venue_id, date, party_size, and time from the latest search.
 - User asks about upcoming restaurant bookings → list_restaurant_reservations.
@@ -243,7 +241,7 @@ Output formatting:
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
 - Format prices as "$X" not "$X.XX" unless cents matter.
-- If a user's flight request is ambiguous (e.g. no origin city), call get_user_location first when they may have shared Find My location with Remi. If location is available, use the nearest airport as origin. If not_sharing, ask where they are flying from and mention they can share location with Remi in Find My (People → Share My Location). If no_coordinates yet, ask for their departure city or airport. If multiple nearby airports are returned, ask which one.`;
+- If a user's flight request is ambiguous (e.g. no origin city), ask where they are flying from or which departure airport they prefer.`;
 
 type ToolInput = Record<string, unknown>;
 
@@ -338,24 +336,6 @@ async function executeTool(
   user: UserProfile,
   ctx: AgentSessionContext,
 ): Promise<string> {
-  if (toolName === 'get_user_location') {
-    const loc = await getSharedFriendLocation(user.phone);
-    if (!loc.ok) {
-      return JSON.stringify({ available: false, reason: loc.reason });
-    }
-    const nearest = nearestAirports(loc.latitude, loc.longitude, 2);
-    return JSON.stringify({
-      available: true,
-      latitude: loc.latitude,
-      longitude: loc.longitude,
-      shortAddress: loc.shortAddress,
-      longAddress: loc.longAddress,
-      locationType: loc.locationType,
-      nearest_airports: nearest,
-      suggested_origin: nearest[0]?.iata,
-    });
-  }
-
   if (toolName === 'search_flights') {
     const { offers, rawOfferRequest } = await searchFlights({
       origin: input.origin as string,
