@@ -96,6 +96,9 @@ export interface UserProfile {
   last_sent_preview_cards?: LastSentPreviewCards | null;
   /** Last held order: GET /offers + POST /orders payloads until cleared after payment. */
   pending_duffel_order?: Record<string, unknown> | null;
+  /** Serialized link-cli auth credentials for Stripe Link wallet */
+  link_auth_json?: string | null;
+  link_connected_at?: string | null;
 }
 
 export interface ConversationMessage {

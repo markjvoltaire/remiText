@@ -10,13 +10,27 @@ import {
   getStreamStaleMs,
   isStreamRefreshDue,
   isStreamStale,
+  markConnectFailed,
   markConnected,
   markConnecting,
   markReconnecting,
   recordInbound,
   type StreamEndReason,
 } from './health.js';
-import { computeReconnectDelayMs, sleep } from './reconnect.js';
+import {
+  computeRateLimitReconnectDelayMs,
+  computeReconnectDelayMs,
+  isSpectrumRateLimited,
+  sleep,
+} from './reconnect.js';
+
+let lastConnectError: unknown = null;
+
+export function takeLastConnectError(): unknown {
+  const err = lastConnectError;
+  lastConnectError = null;
+  return err;
+}
 
 const PROVIDER = (process.env.SPECTRUM_PROVIDER ?? 'imessage').toLowerCase();
 
@@ -116,7 +130,17 @@ export async function runSpectrumSession(): Promise<StreamEndReason> {
   markConnecting();
   console.log(`[stream] connecting provider=${PROVIDER}`);
 
-  const app = await createSpectrum();
+  let app: SpectrumInstance;
+  try {
+    app = await createSpectrum();
+  } catch (err) {
+    lastConnectError = err;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[stream] connect failed:', msg);
+    markConnectFailed(err);
+    return 'error';
+  }
+
   markConnected();
   console.log(
     `[stream] connected staleMs=${getStreamStaleMs() || 'off'} refreshMs=${getStreamRefreshMs() || 'off'}`,
@@ -149,10 +173,13 @@ export async function runSpectrumSession(): Promise<StreamEndReason> {
 
 export async function runSpectrumForever(): Promise<never> {
   let errorAttempt = 0;
+  let rateLimitAttempt = 0;
   const maxFailures = Number(process.env.STREAM_MAX_RECONNECT_FAILURES ?? 0);
 
   for (;;) {
     const reason = await runSpectrumSession();
+    const connectErr = takeLastConnectError();
+    const rateLimited = connectErr != null && isSpectrumRateLimited(connectErr);
 
     if (reason === 'ended') {
       console.warn('[stream] iterator ended — reconnecting');
@@ -165,11 +192,19 @@ export async function runSpectrumForever(): Promise<never> {
         `[stream] proactive refresh after ${getStreamRefreshMs()}ms connected`,
       );
     } else if (reason === 'error') {
-      console.warn('[stream] session ended with error — reconnecting');
+      if (rateLimited) {
+        console.warn('[stream] Spectrum rate limited (429) — backing off before reconnect');
+      } else {
+        console.warn('[stream] session ended with error — reconnecting');
+      }
     }
 
-    if (reason === 'error') {
+    if (rateLimited) {
+      rateLimitAttempt += 1;
+      errorAttempt = 0;
+    } else if (reason === 'error') {
       errorAttempt += 1;
+      rateLimitAttempt = 0;
       if (maxFailures > 0 && errorAttempt >= maxFailures) {
         console.error(
           `[fatal] ${maxFailures} consecutive session errors — exiting for Render restart`,
@@ -178,14 +213,21 @@ export async function runSpectrumForever(): Promise<never> {
       }
     } else {
       errorAttempt = 0;
+      rateLimitAttempt = 0;
     }
 
     markReconnecting(reason);
 
-    const delay = computeReconnectDelayMs(errorAttempt);
+    const delay = rateLimited
+      ? computeRateLimitReconnectDelayMs(rateLimitAttempt)
+      : computeReconnectDelayMs(errorAttempt);
     console.log(
       `[stream] reconnect in ${(delay / 1000).toFixed(1)}s` +
-        (errorAttempt > 0 ? ` (error attempt ${errorAttempt})` : ''),
+        (rateLimited
+          ? ` (rate limit attempt ${rateLimitAttempt})`
+          : errorAttempt > 0
+            ? ` (error attempt ${errorAttempt})`
+            : ''),
     );
     await sleep(delay);
   }

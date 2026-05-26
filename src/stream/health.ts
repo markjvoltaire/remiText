@@ -77,7 +77,18 @@ export function markFailed(error: string): void {
   };
 }
 
-const STALE_MS = Number(process.env.STREAM_STALE_MS ?? process.env.STREAM_WATCHDOG_MS ?? 30 * 60 * 1000);
+export function markConnectFailed(err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  snapshot = {
+    ...snapshot,
+    state: 'failed',
+    connectedAt: null,
+    lastError: message,
+  };
+}
+
+// Default off: idle stale-recycle hammers Spectrum createClient (~48/day at 30m). Use STREAM_REFRESH_MS instead.
+const STALE_MS = Number(process.env.STREAM_STALE_MS ?? process.env.STREAM_WATCHDOG_MS ?? 0);
 const REFRESH_MS = Number(process.env.STREAM_REFRESH_MS ?? 6 * 60 * 60 * 1000);
 const RECONNECT_UNHEALTHY_MS = Number(process.env.STREAM_RECONNECT_UNHEALTHY_MS ?? 120_000);
 

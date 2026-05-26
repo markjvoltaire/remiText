@@ -1,3 +1,7 @@
+/**
+ * @deprecated SMS onboarding moved to remi-one-pager (/signup).
+ * New users receive a signup link from handleMessage instead.
+ */
 import { createClient } from '@supabase/supabase-js';
 import { normalizeContactKey } from '../utils/contactId.js';
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
@@ -19,6 +23,51 @@ function normalizeDob(raw) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(s))
         return null;
     return s;
+}
+/** Common SMS openers — not valid full names. */
+const GREETING_TOKENS = new Set([
+    'hi',
+    'hey',
+    'hello',
+    'hiya',
+    'yo',
+    'sup',
+    'howdy',
+    'heya',
+    'hola',
+    'good',
+    'morning',
+    'afternoon',
+    'evening',
+    'thanks',
+    'thank',
+    'you',
+    'ok',
+    'okay',
+    'yes',
+    'no',
+    'test',
+]);
+function normalizeFullName(raw) {
+    const name = raw.replace(/\s+/g, ' ').trim();
+    if (name.length < 3)
+        return null;
+    const words = name.split(' ').filter(Boolean);
+    if (words.length < 2)
+        return null;
+    for (const word of words) {
+        if (word.length < 2)
+            return null;
+        const bare = word.replace(/[.'-]/g, '');
+        if (!bare || !/^[\p{L}\p{M}]+$/u.test(bare))
+            return null;
+        if (GREETING_TOKENS.has(word.toLowerCase()))
+            return null;
+    }
+    const joined = words.join(' ').toLowerCase();
+    if (GREETING_TOKENS.has(joined))
+        return null;
+    return words.join(' ');
 }
 function normalizeTitle(raw) {
     const s = raw.trim().replace(/\.$/, '');
@@ -70,10 +119,25 @@ export async function startOnboarding(phone) {
 }
 export async function advanceOnboarding(session, inboundText) {
     const text = inboundText.trim();
+    // Recover sessions that advanced on a greeting before name validation was stricter.
+    if (session.step !== 'name' && session.name && !normalizeFullName(session.name)) {
+        await supabase
+            .from('onboarding_sessions')
+            .update({ name: null, step: 'name' })
+            .eq('phone', session.phone);
+        return {
+            kind: 'prompt',
+            message: 'Please send your first and last name (for example: Jane Smith).',
+        };
+    }
     if (session.step === 'name') {
-        const name = text.replace(/\s+/g, ' ').trim();
-        if (name.length < 2)
-            return { kind: 'prompt', message: 'What’s your full name?' };
+        const name = normalizeFullName(text);
+        if (!name) {
+            return {
+                kind: 'prompt',
+                message: 'Please send your first and last name (for example: Jane Smith).',
+            };
+        }
         await supabase.from('onboarding_sessions').update({ name, step: 'email' }).eq('phone', session.phone);
         return { kind: 'prompt', message: 'What’s your email?' };
     }

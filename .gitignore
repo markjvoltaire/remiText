@@ -1,2 +1,4 @@
 .env
 node_modules/
+.link-auth/
+link-cli-runner/node_modules/

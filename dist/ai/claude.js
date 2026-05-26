@@ -14,6 +14,7 @@ import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import { isMonidConfigured, runSocialDiscovery, MonidNotConfiguredError, MonidApiError, } from '../services/monid.js';
+import { linkAuthStatus, linkAuthLogin, linkAuthPoll, linkPaymentMethodsList, linkShippingAddressList, formatLinkAuthStatus, formatLinkLoginResponse, isLinkCliInstalled, persistLinkAuthFile, } from '../services/linkCli.js';
 import { formatSocialDiscoveryForTool, isVagueSocialVibe, } from '../utils/formatSocialRecommendations.js';
 import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, } from '../images/satori/index.js';
 import { sessionModelRound, sessionToolLog } from '../utils/sessionLog.js';
@@ -167,7 +168,26 @@ Output formatting:
 - When hold_flight returns successfully, use the "formatted" field as your reply verbatim — do not reformat or paraphrase it.
 - When book_flight returns successfully, reply with: "Booked! Confirmation: <booking_reference>. Have a great flight!" (use the booking_reference from the tool result).
 - Format prices as "$X" not "$X.XX" unless cents matter.
-- If a user's flight request is ambiguous (e.g. no origin city), ask where they are flying from or which departure airport they prefer.`;
+- If a user's flight request is ambiguous (e.g. no origin city), ask where they are flying from or which departure airport they prefer.
+
+Payments — two rails:
+- Default for flights: signup card at remitexts.co/signup (stripe_spt_id) via book_flight / confirm_booking.
+- Stripe Link wallet (link_connect): for future merchant checkout and one-time virtual cards. US Link accounts only.
+- If the user asks to connect Link, log in to Link, or pay on a random merchant site, use link_auth_status first, then link_connect if needed.
+- After link_connect, send the verification_url clearly and ask them to text back when approved; then call link_auth_status (or link_connect with poll on their confirmation — use link_auth_status only, one tool per turn).
+- Never paste full card numbers, CVCs, or full shipping addresses in SMS — abbreviate (brand + last4, city + zip only).
+- link_payment_methods_list / link_shipping_address_list require an authenticated Link wallet.`;
+function linkNotAvailablePayload() {
+    return JSON.stringify({
+        error: true,
+        message: "Link wallet isn't set up on this server yet. Flights and restaurants still work with your signup card at remitexts.co/signup.",
+    });
+}
+function linkToolError(result) {
+    const message = result.error?.message ??
+        (result.stderr?.trim() ? result.stderr.trim() : 'Link command failed. Try again in a moment.');
+    return JSON.stringify({ error: true, message });
+}
 async function attachFlightCardSafely(ctx, order, formattedPrice, tag) {
     try {
         const input = flightCardInputFromHeldOrder(order, formattedPrice);
@@ -962,6 +982,92 @@ async function executeTool(toolName, input, user, ctx) {
             console.error(`[cancel_restaurant_reservation] ${message}`);
             return JSON.stringify({ error: true, message });
         }
+    }
+    if (toolName === 'link_auth_status') {
+        if (!isLinkCliInstalled())
+            return linkNotAvailablePayload();
+        const poll = Boolean(input.poll_until_authenticated);
+        const result = poll
+            ? await linkAuthPoll(user.id, input.max_attempts ?? 12)
+            : await linkAuthStatus(user.id);
+        if (!result.ok)
+            return linkToolError(result);
+        const status = formatLinkAuthStatus(result.parsed);
+        if (status.authenticated) {
+            await persistLinkAuthFile(user.id);
+        }
+        return JSON.stringify({
+            authenticated: status.authenticated,
+            link_connected_at: user.link_connected_at ?? null,
+            guidance: status.authenticated
+                ? 'User has Link connected. You can call link_payment_methods_list or link_shipping_address_list.'
+                : 'User is not connected to Link yet. Call link_connect to start.',
+        });
+    }
+    if (toolName === 'link_connect') {
+        if (!isLinkCliInstalled())
+            return linkNotAvailablePayload();
+        const statusResult = await linkAuthStatus(user.id);
+        if (statusResult.ok) {
+            const status = formatLinkAuthStatus(statusResult.parsed);
+            if (status.authenticated) {
+                await persistLinkAuthFile(user.id);
+                return JSON.stringify({
+                    already_connected: true,
+                    message: 'Your Link wallet is already connected to Remi.',
+                });
+            }
+        }
+        const loginResult = await linkAuthLogin(user.id);
+        if (!loginResult.ok)
+            return linkToolError(loginResult);
+        const login = formatLinkLoginResponse(loginResult.parsed);
+        if (!login.verification_url) {
+            return JSON.stringify({
+                error: true,
+                message: 'Could not start Link connection. Try again in a moment.',
+            });
+        }
+        return JSON.stringify({
+            verification_url: login.verification_url,
+            phrase: login.phrase,
+            formatted: `Connect your Link wallet here: ${login.verification_url}${login.phrase ? `\n\nWhen prompted, enter this phrase: ${login.phrase}` : ''}\n\nText me when you've approved it.`,
+            guidance: 'Send the formatted message to the user. When they confirm approval, call link_auth_status with poll_until_authenticated true on the next turn.',
+        });
+    }
+    if (toolName === 'link_payment_methods_list') {
+        if (!isLinkCliInstalled())
+            return linkNotAvailablePayload();
+        const result = await linkPaymentMethodsList(user.id);
+        if (!result.ok) {
+            const msg = result.error?.message ?? '';
+            if (/not authenticated|login|auth/i.test(msg)) {
+                return JSON.stringify({
+                    error: true,
+                    needs_link_connect: true,
+                    message: 'Link wallet not connected yet. Call link_connect first.',
+                });
+            }
+            return linkToolError(result);
+        }
+        return JSON.stringify({ payment_methods: result.parsed });
+    }
+    if (toolName === 'link_shipping_address_list') {
+        if (!isLinkCliInstalled())
+            return linkNotAvailablePayload();
+        const result = await linkShippingAddressList(user.id);
+        if (!result.ok) {
+            const msg = result.error?.message ?? '';
+            if (/not authenticated|login|auth/i.test(msg)) {
+                return JSON.stringify({
+                    error: true,
+                    needs_link_connect: true,
+                    message: 'Link wallet not connected yet. Call link_connect first.',
+                });
+            }
+            return linkToolError(result);
+        }
+        return JSON.stringify({ shipping_addresses: result.parsed });
     }
     throw new Error(`Unknown tool: ${toolName}`);
 }

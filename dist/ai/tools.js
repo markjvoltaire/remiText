@@ -245,4 +245,49 @@ export const tools = [
             required: [],
         },
     },
+    {
+        name: 'link_auth_status',
+        description: 'Check whether the user has connected their Stripe Link wallet to Remi. Call before link_connect or when the user says they finished Link approval. Set poll_until_authenticated when the user just approved Link and you need to wait for auth to complete.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                poll_until_authenticated: {
+                    type: 'boolean',
+                    description: 'If true, poll auth status for up to ~1 minute until authenticated. Use after the user confirms they approved Link.',
+                },
+                max_attempts: {
+                    type: 'number',
+                    description: 'Poll attempts when poll_until_authenticated is true. Defaults to 12 (~60s).',
+                },
+            },
+            required: [],
+        },
+    },
+    {
+        name: 'link_connect',
+        description: 'Start connecting the user\'s Stripe Link wallet. Returns a verification URL and phrase they must approve in the Link app. Tell them to open the URL, approve, then text back when done — then call link_auth_status.',
+        input_schema: {
+            type: 'object',
+            properties: {},
+            required: [],
+        },
+    },
+    {
+        name: 'link_payment_methods_list',
+        description: 'List payment methods in the user\'s connected Stripe Link wallet. Requires link_connect first. Use when preparing a Link purchase or when the user asks which cards are on Link.',
+        input_schema: {
+            type: 'object',
+            properties: {},
+            required: [],
+        },
+    },
+    {
+        name: 'link_shipping_address_list',
+        description: 'List saved shipping addresses in the user\'s Stripe Link wallet. Requires link_connect first.',
+        input_schema: {
+            type: 'object',
+            properties: {},
+            required: [],
+        },
+    },
 ];

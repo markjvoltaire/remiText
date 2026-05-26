@@ -213,3 +213,34 @@ export async function markRestaurantBookingCancelled(params) {
     }
     console.log(`[supabase] restaurant_booking cancelled token=${params.resyToken} user=${params.userId}`);
 }
+export async function getLinkAuthJson(userId) {
+    const { data, error } = await supabase
+        .from('users')
+        .select('link_auth_json')
+        .eq('id', userId)
+        .maybeSingle();
+    if (error || !data?.link_auth_json)
+        return null;
+    return data.link_auth_json;
+}
+export async function setLinkAuthJson(userId, authJson) {
+    const { error } = await supabase
+        .from('users')
+        .update({
+        link_auth_json: authJson,
+        link_connected_at: new Date().toISOString(),
+    })
+        .eq('id', userId);
+    if (error) {
+        console.warn(`[supabase] setLinkAuthJson failed user=${userId}:`, error.message);
+    }
+}
+export async function clearLinkAuth(userId) {
+    const { error } = await supabase
+        .from('users')
+        .update({ link_auth_json: null, link_connected_at: null })
+        .eq('id', userId);
+    if (error) {
+        console.warn(`[supabase] clearLinkAuth failed user=${userId}:`, error.message);
+    }
+}

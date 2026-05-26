@@ -1,0 +1,8 @@
+{
+  "name": "remitext-link-cli-runner",
+  "private": true,
+  "description": "Isolated @stripe/link-cli install — avoids React 19 conflict with Satori in the main app",
+  "dependencies": {
+    "@stripe/link-cli": "0.5.0"
+  }
+}

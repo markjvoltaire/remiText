@@ -10,9 +10,10 @@ services:
         value: 22
       - key: PORT
         value: "10000"
-      # Recycle Spectrum connection if no inbound texts (default 30 min).
+      # Idle stale-recycle (off by default — 30m caused ~48 createClient/day and Spectrum 429s).
+      # Set e.g. 14400000 (4h) only if you need faster zombie detection than refresh below.
       - key: STREAM_STALE_MS
-        value: "1800000"
+        value: "0"
       # Proactive reconnect every 6h even when active (avoids silent stale gRPC).
       - key: STREAM_REFRESH_MS
         value: "21600000"
