@@ -4,9 +4,18 @@ services:
     runtime: node
     buildCommand: npm install && npm run build
     startCommand: npm start
+    healthCheckPath: /
     envVars:
       - key: NODE_VERSION
         value: 22
+      - key: PORT
+        value: "10000"
+      # Recycle Spectrum connection if no inbound texts (default 30 min).
+      - key: STREAM_STALE_MS
+        value: "1800000"
+      # Proactive reconnect every 6h even when active (avoids silent stale gRPC).
+      - key: STREAM_REFRESH_MS
+        value: "21600000"
       - key: PROJECT_ID
         sync: false
       - key: PROJECT_SECRET

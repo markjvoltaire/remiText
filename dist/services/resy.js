@@ -188,6 +188,15 @@ async function refreshAuth() {
     authTokenTimestamp = Date.now();
     return authToken;
 }
+/** Clear cached auth and establish a fresh session (call after idle / on stream connect). */
+export async function warmResyAuth() {
+    if (!isResyConfigured())
+        return;
+    authToken = '';
+    authTokenTimestamp = 0;
+    await refreshAuth();
+    console.log('[resy] auth warmed');
+}
 function delay(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
