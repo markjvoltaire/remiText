@@ -4,94 +4,72 @@ import {
   formatBookingDate,
   formatHumanDate,
   formatPartySize,
-  formatPriceRange,
-  formatSearchHeader,
 } from './smsFormat.js';
+import {
+  formatCuratedTimesPhrase,
+  mealPeriodLabel,
+  type MealPeriod,
+} from './restaurantTimeFilter.js';
 
-const MAX_VENUES = 5;
-const MAX_SLOTS_PREVIEW = 3;
+const MAX_VENUES = 4;
+const MAX_CURATED_TIMES = 3;
 
-function formatSlotTimes(slots: RestaurantVenue['slots'], limit: number): string {
-  const seen = new Set<string>();
-  const times: string[] = [];
-  for (const slot of slots) {
-    const t = slot.time?.trim();
-    if (!t || seen.has(t)) continue;
-    seen.add(t);
-    times.push(compactTime(t));
-    if (times.length >= limit) break;
+function whenPhrase(date: string, mealPeriod?: MealPeriod | null): string {
+  const day = formatHumanDate(date);
+  if (!mealPeriod) return day;
+  const label = mealPeriodLabel(mealPeriod);
+  if (mealPeriod === 'night' || mealPeriod === 'dinner' || mealPeriod === 'late_night') {
+    return `${day} ${label}`;
   }
-  if (times.length === 0) return 'no times listed';
-  return times.join(', ');
-}
-
-function venueDescriptor(venue: RestaurantVenue): { headline: string; subline?: string } {
-  const price = formatPriceRange(venue.price_range);
-  const details = [venue.cuisine?.trim(), venue.neighborhood?.trim()].filter(Boolean);
-  const subline = details.length > 0 ? [...details, price].filter(Boolean).join(' · ') : undefined;
-
-  if (subline) return { headline: venue.name, subline };
-  if (price) return { headline: `${venue.name} · ${price}` };
-  return { headline: venue.name };
-}
-
-function formatVenueBlock(venue: RestaurantVenue): string {
-  const { headline, subline } = venueDescriptor(venue);
-  const times = formatSlotTimes(venue.slots, MAX_SLOTS_PREVIEW);
-  const extra =
-    venue.slots.length > MAX_SLOTS_PREVIEW
-      ? ` (+${venue.slots.length - MAX_SLOTS_PREVIEW} more)`
-      : '';
-
-  const lines = [headline];
-  if (subline) lines.push(subline);
-  lines.push(`${times}${extra}`);
-  return lines.join('\n');
+  return `${label} ${day}`;
 }
 
 export function restaurantsToSMS(
   venues: RestaurantVenue[],
-  meta: { location: string; date: string; partySize: number; mealPeriod?: string },
+  meta: {
+    location: string;
+    date: string;
+    partySize: number;
+    mealPeriod?: MealPeriod | null;
+  },
 ): string {
-  const header = formatSearchHeader([
-    meta.location,
-    formatHumanDate(meta.date),
-    formatPartySize(meta.partySize),
-    ...(meta.mealPeriod ? [meta.mealPeriod] : []),
-  ]);
+  const when = whenPhrase(meta.date, meta.mealPeriod);
 
   if (venues.length === 0) {
-    const when = meta.mealPeriod ? `for ${meta.mealPeriod} ` : '';
-    return `${header}\n\nNothing open ${when}that night. Try another time or date?`;
+    const periodHint = meta.mealPeriod ? ` for ${mealPeriodLabel(meta.mealPeriod)}` : '';
+    return `nothing open${periodHint} that night. want me to try another time or spot?`;
   }
 
-  const countLabel = venues.length === 1 ? '1 table open' : `${venues.length} tables open`;
-  const blocks = venues.slice(0, MAX_VENUES).map(formatVenueBlock);
+  if (venues.length === 1) {
+    const venue = venues[0]!;
+    const times = formatCuratedTimesPhrase(venue.slots, MAX_CURATED_TIMES, meta.mealPeriod);
+    const lines = [`${venue.name} has good availability ${when}.`];
+    if (times) lines.push(`best openings are ${times}.`);
+    lines.push('want me to lock one in?');
+    return lines.join('\n');
+  }
 
-  return [formatSearchHeader([countLabel, header]), '', ...blocks, '', 'Which spot works?'].join('\n');
+  const lines = [`found a few solid options ${when}.`, ''];
+  for (const venue of venues.slice(0, MAX_VENUES)) {
+    const times = formatCuratedTimesPhrase(venue.slots, MAX_CURATED_TIMES, meta.mealPeriod);
+    lines.push(times ? `${venue.name} — ${times}` : venue.name);
+  }
+  lines.push('', 'want me to lock one in?');
+  return lines.join('\n');
 }
 
-export function restaurantDetailToSMS(venue: RestaurantVenue): string {
-  const { headline, subline } = venueDescriptor(venue);
-  const lines = [headline];
-  if (subline) lines.push(subline);
-  lines.push('');
-
+export function restaurantDetailToSMS(
+  venue: RestaurantVenue,
+  mealPeriod?: MealPeriod | null,
+): string {
   if (venue.slots.length === 0) {
-    lines.push('No open times right now.');
-  } else {
-    lines.push('Open times');
-    for (const slot of venue.slots.slice(0, 15)) {
-      const type =
-        slot.slot_type && slot.slot_type !== 'Standard' ? ` · ${slot.slot_type}` : '';
-      lines.push(compactTime(slot.time ?? '') + type);
-    }
-    if (venue.slots.length > 15) {
-      lines.push(`+${venue.slots.length - 15} more`);
-    }
+    return `nothing open at ${venue.name} right now. want me to check another night?`;
   }
 
-  lines.push('', 'Reply with a time to book.');
+  const times = formatCuratedTimesPhrase(venue.slots, MAX_CURATED_TIMES, mealPeriod);
+  const lines = [`${venue.name} looks good.`];
+  if (times) lines.push(`best times are ${times}.`);
+  lines.push('want me to lock one in?');
   return lines.join('\n');
 }
 
@@ -101,12 +79,10 @@ export function formatRestaurantBookingConfirmPromptSMS(params: {
   time: string;
   partySize: number;
 }): string {
-  const when = formatSearchHeader([
-    formatBookingDate(params.date),
-    compactTime(params.time),
-    formatPartySize(params.partySize),
-  ]);
-  return `Just to confirm · ${params.venueName}\n${when}?\n\nReply yes to book.`;
+  const day = formatBookingDate(params.date);
+  const time = compactTime(params.time);
+  const party = params.partySize === 1 ? 'just you' : `for ${params.partySize}`;
+  return `just to confirm — ${params.venueName}, ${time} ${day}, ${party}?\n\nreply yes and i'll lock it in.`;
 }
 
 export function formatReservationConfirmationSMS(params: {
@@ -117,15 +93,10 @@ export function formatReservationConfirmationSMS(params: {
   confirmation?: string;
   seatingType?: string;
 }): string {
-  const when = formatSearchHeader([
-    formatHumanDate(params.date),
-    compactTime(params.time),
-    formatPartySize(params.partySize),
-  ]);
-  const seating =
-    params.seatingType && params.seatingType !== 'Standard' ? ` · ${params.seatingType}` : '';
-  const conf = params.confirmation ? `\nRef ${params.confirmation}` : '';
-  return `Booked · ${params.venueName}\n${when}${seating}${conf}\n\nResy will email your confirmation.`;
+  const day = formatHumanDate(params.date);
+  const time = compactTime(params.time);
+  const conf = params.confirmation ? `\nconf ${params.confirmation}` : '';
+  return `done. you're in at ${params.venueName} — ${time} ${day}.${conf}`;
 }
 
 export function reservationsListToSMS(
@@ -137,19 +108,17 @@ export function reservationsListToSMS(
   }>,
 ): string {
   if (items.length === 0) {
-    return 'No upcoming reservations on file.';
+    return 'no upcoming reservations on file.';
   }
 
-  const blocks = items.map((r) => {
-    const when = formatSearchHeader([
-      formatHumanDate(r.date),
-      r.time ? compactTime(r.time) : '',
-      formatPartySize(r.party_size),
-    ]);
-    return `${r.venue_name}\n${when}`;
-  });
-
-  return ['Upcoming', '', ...blocks].join('\n');
+  const lines = ['upcoming:', ''];
+  for (const r of items) {
+    const day = formatHumanDate(r.date);
+    const time = r.time ? compactTime(r.time) : '';
+    const party = formatPartySize(r.party_size);
+    lines.push(`${r.venue_name} — ${day}${time ? ` ${time}` : ''} ${party}`);
+  }
+  return lines.join('\n');
 }
 
 export function formatReservationCancellationSMS(params: {
@@ -157,9 +126,7 @@ export function formatReservationCancellationSMS(params: {
   date: string;
   time: string;
 }): string {
-  const when = formatSearchHeader([
-    formatHumanDate(params.date),
-    params.time ? compactTime(params.time) : '',
-  ]);
-  return `Cancelled · ${params.venueName}\n${when}`;
+  const day = formatHumanDate(params.date);
+  const time = params.time ? compactTime(params.time) : '';
+  return `cancelled ${params.venueName}${time ? ` ${time}` : ''} ${day}.`;
 }

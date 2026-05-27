@@ -19,8 +19,8 @@ function extractText(content) {
 }
 function welcomeMessage(name) {
     const first = name.trim().split(/\s+/)[0] || name;
-    return (`You're all set, ${first}! I'm Remi — your travel concierge.\n\n` +
-        `Text me where you'd like to go: flights, dinner, or what's trending near you.`);
+    return (`you're all set, ${first}.\n\n` +
+        `text me when you want a table, a flight, or what's good near you.`);
 }
 export async function handleMessage(space, message) {
     const id = message.id;
@@ -39,7 +39,7 @@ export async function handleMessage(space, message) {
         let session = await getOnboardingSession(contactKey);
         if (!session) {
             await startOnboarding(contactKey);
-            await message.reply("Hi! I'm Remi — your travel concierge.\n\nWhat's your name?");
+            await message.reply("hey — i'm remi.\n\nwhat's your name?");
             return;
         }
         const result = await advanceOnboarding(session, text);

@@ -39,7 +39,7 @@ export function buildPreviewReplyContext(user, kind, partIndex) {
         return [
             `The user replied to the image for restaurant option ${partIndex + 1} (${facts}).`,
             'Treat this as their selected restaurant. Do not ask which restaurant they mean.',
-            'Default action for "tell me more", "more info", "what\'s it like", "story", "what to expect": write a SHORT 2-3 sentence brief in plain text — cuisine, vibe, neighborhood, and what diners can expect. End with one short follow-up question like "Want to see times?".',
+            'Default action for "tell me more", "more info", "what\'s it like", "story", "what to expect": write a SHORT 2-3 sentence brief in plain text — cuisine, vibe, neighborhood, and what diners can expect. End softly, e.g. "want to see times?".',
             'When describing the venue, you MAY use general knowledge for well-known restaurants. If you do NOT confidently know this specific venue, describe it factually using only the cuisine, neighborhood, price, and rating above — never invent specific dishes, chef names, awards, or history.',
             'Only call get_restaurant_availability when the user explicitly asks for times, availability, or says yes/sure to "Want to see times?".',
             'If they say book/reserve with a time (e.g. "book the 5:45"), call book_restaurant_table without confirm to send a confirmation SMS first — do not book until they reply yes.',

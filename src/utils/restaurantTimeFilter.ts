@@ -1,5 +1,7 @@
 /** Infer meal/time-of-day from SMS and filter Resy slots to match. */
 
+import { compactTime } from './smsFormat.js';
+
 export type MealPeriod =
   | 'breakfast'
   | 'brunch'
@@ -131,4 +133,61 @@ export function filterVenuesByMealPeriod<T extends { slots: Array<{ time: string
       slots: filterSlotsByMealPeriod(venue.slots, period),
     }))
     .filter((venue) => venue.slots.length > 0);
+}
+
+const PRIME_TARGET_MINUTES: Partial<Record<MealPeriod, number>> = {
+  breakfast: 8 * 60 + 30,
+  brunch: 11 * 60,
+  lunch: 12 * 60 + 30,
+  afternoon: 15 * 60,
+  dinner: 20 * 60,
+  night: 20 * 60,
+  late_night: 21 * 60 + 30,
+};
+
+function uniqueSlotTimes(slots: Array<{ time: string }>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const slot of slots) {
+    const t = slot.time?.trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+  }
+  return out;
+}
+
+/** Pick 2–3 best slots — prime dinner around 8pm, not earliest inventory. */
+export function pickCuratedSlotTimes(
+  slots: Array<{ time: string }>,
+  limit = 3,
+  mealPeriod?: MealPeriod | null,
+): string[] {
+  const unique = uniqueSlotTimes(slots);
+  if (unique.length <= limit) return unique;
+
+  const target = (mealPeriod && PRIME_TARGET_MINUTES[mealPeriod]) ?? 20 * 60;
+  const scored = unique
+    .map((time) => {
+      const mins = slotTimeToMinutes(time);
+      return mins == null ? null : { time, mins, dist: Math.abs(mins - target) };
+    })
+    .filter((row): row is { time: string; mins: number; dist: number } => row != null)
+    .sort((a, b) => a.dist - b.dist || a.mins - b.mins);
+
+  const picked = scored.slice(0, limit).sort((a, b) => a.mins - b.mins);
+  return picked.map((row) => row.time);
+}
+
+/** "7:45p, 8:00p, or 8:15p" */
+export function formatCuratedTimesPhrase(
+  slots: Array<{ time: string }>,
+  limit = 3,
+  mealPeriod?: MealPeriod | null,
+): string {
+  const times = pickCuratedSlotTimes(slots, limit, mealPeriod).map(compactTime);
+  if (times.length === 0) return '';
+  if (times.length === 1) return times[0]!;
+  if (times.length === 2) return `${times[0]} or ${times[1]}`;
+  return `${times.slice(0, -1).join(', ')}, or ${times[times.length - 1]}`;
 }
