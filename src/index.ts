@@ -7,6 +7,7 @@ process.on('unhandledRejection', (reason) => {
   console.error('[fatal] unhandledRejection:', reason);
 });
 
+import { FLIGHT_CARD_TEMPLATE_VERSION } from './images/satori/renderFlightCard.js';
 import { assertSeenMessagesTableReady } from './services/supabase.js';
 import { getStreamStaleMs, getStreamRefreshMs, startHealthServer } from './stream/health.js';
 import { runSpectrumForever } from './stream/session.js';
@@ -19,6 +20,7 @@ startHealthServer(port);
 
 console.log(
   `[boot] Remi starting staleMs=${getStreamStaleMs() || 'off'} refreshMs=${getStreamRefreshMs() || 'off'}` +
+    ` flightCard=${FLIGHT_CARD_TEMPLATE_VERSION}` +
     (Number.isFinite(port) && port > 0 ? ` healthPort=${port}` : ''),
 );
 

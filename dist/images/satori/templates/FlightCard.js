@@ -49,7 +49,6 @@ export function FlightCard(data) {
     const optionLabel = formatOptionLabel(data.optionLabel);
     const dep = compactTimeLabel(data.departureTime);
     const arr = compactTimeLabel(data.arrivalTime);
-    const route = `${data.origin} → ${data.destination}`;
     const meta = [data.duration, stops].filter(Boolean).join(" · ");
     const flightMeta = data.flightNumber
         ? `${data.airline} · ${data.flightNumber}`
@@ -102,14 +101,31 @@ export function FlightCard(data) {
                         marginTop: 72,
                         display: "flex",
                         flexDirection: "column",
-                    }, children: [_jsx("div", { style: {
-                                fontSize: 52,
-                                fontWeight: 700,
-                                letterSpacing: -1.5,
-                                lineHeight: 1.05,
-                                color: INK,
+                    }, children: [_jsxs("div", { style: {
                                 display: "flex",
-                            }, children: route }), date ? (_jsx("div", { style: {
+                                alignItems: "baseline",
+                                gap: 20,
+                            }, children: [_jsx("div", { style: {
+                                        fontSize: 52,
+                                        fontWeight: 700,
+                                        letterSpacing: -1.5,
+                                        lineHeight: 1.05,
+                                        color: INK,
+                                        display: "flex",
+                                    }, children: data.origin }), _jsx("div", { style: {
+                                        fontSize: 26,
+                                        fontWeight: 400,
+                                        color: MUTED,
+                                        paddingBottom: 6,
+                                        display: "flex",
+                                    }, children: "to" }), _jsx("div", { style: {
+                                        fontSize: 52,
+                                        fontWeight: 700,
+                                        letterSpacing: -1.5,
+                                        lineHeight: 1.05,
+                                        color: INK,
+                                        display: "flex",
+                                    }, children: data.destination })] }), date ? (_jsx("div", { style: {
                                 fontSize: 28,
                                 fontWeight: 400,
                                 color: MUTED,

@@ -8,6 +8,9 @@ import { FlightCard, type FlightCardInput } from "./templates/FlightCard.js";
 
 export type { FlightCardInput };
 
+/** Bump when card layout changes — busts in-process cache and shows in deploy logs. */
+export const FLIGHT_CARD_TEMPLATE_VERSION = "v2-editorial";
+
 export interface FlightCardImage {
   buffer: Buffer;
   contentType: "image/png";
@@ -43,6 +46,7 @@ async function loadFonts(): Promise<{ regular: Buffer; bold: Buffer }> {
 
 const MAX_CACHE_ENTRIES = 128;
 const cache = new Map<string, FlightCardImage>();
+let loggedTemplateVersion = false;
 
 function cacheKey(data: FlightCardInput): string {
   const normalized = {
@@ -62,7 +66,10 @@ function cacheKey(data: FlightCardInput): string {
     flightNumber: data.flightNumber ?? "",
     optionLabel: data.optionLabel ?? "",
   };
-  return createHash("sha1").update(JSON.stringify(normalized)).digest("hex");
+  return createHash("sha1")
+    .update(FLIGHT_CARD_TEMPLATE_VERSION)
+    .update(JSON.stringify(normalized))
+    .digest("hex");
 }
 
 function rememberInCache(key: string, value: FlightCardImage): void {
@@ -117,6 +124,10 @@ export async function generateFlightCardImage(
     const buffer = await renderToPng(data);
     const result: FlightCardImage = { buffer, contentType: "image/png" };
     rememberInCache(key, result);
+    if (!loggedTemplateVersion) {
+      loggedTemplateVersion = true;
+      console.log(`[flightCardImage] template=${FLIGHT_CARD_TEMPLATE_VERSION}`);
+    }
     return result;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

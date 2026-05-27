@@ -82,7 +82,6 @@ export function FlightCard(data: FlightCardInput): ReactElement {
   const optionLabel = formatOptionLabel(data.optionLabel);
   const dep = compactTimeLabel(data.departureTime);
   const arr = compactTimeLabel(data.arrivalTime);
-  const route = `${data.origin} → ${data.destination}`;
   const meta = [data.duration, stops].filter(Boolean).join(" · ");
   const flightMeta = data.flightNumber
     ? `${data.airline} · ${data.flightNumber}`
@@ -167,15 +166,46 @@ export function FlightCard(data: FlightCardInput): ReactElement {
         >
           <div
             style={{
-              fontSize: 52,
-              fontWeight: 700,
-              letterSpacing: -1.5,
-              lineHeight: 1.05,
-              color: INK,
               display: "flex",
+              alignItems: "baseline",
+              gap: 20,
             }}
           >
-            {route}
+            <div
+              style={{
+                fontSize: 52,
+                fontWeight: 700,
+                letterSpacing: -1.5,
+                lineHeight: 1.05,
+                color: INK,
+                display: "flex",
+              }}
+            >
+              {data.origin}
+            </div>
+            <div
+              style={{
+                fontSize: 26,
+                fontWeight: 400,
+                color: MUTED,
+                paddingBottom: 6,
+                display: "flex",
+              }}
+            >
+              to
+            </div>
+            <div
+              style={{
+                fontSize: 52,
+                fontWeight: 700,
+                letterSpacing: -1.5,
+                lineHeight: 1.05,
+                color: INK,
+                display: "flex",
+              }}
+            >
+              {data.destination}
+            </div>
           </div>
           {date ? (
             <div

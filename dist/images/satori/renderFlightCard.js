@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
 import { FlightCard } from "./templates/FlightCard.js";
+/** Bump when card layout changes — busts in-process cache and shows in deploy logs. */
+export const FLIGHT_CARD_TEMPLATE_VERSION = "v2-editorial";
 const WIDTH = 1080;
 const HEIGHT = 1440;
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +32,7 @@ async function loadFonts() {
 }
 const MAX_CACHE_ENTRIES = 128;
 const cache = new Map();
+let loggedTemplateVersion = false;
 function cacheKey(data) {
     const normalized = {
         airline: data.airline,
@@ -48,7 +51,10 @@ function cacheKey(data) {
         flightNumber: data.flightNumber ?? "",
         optionLabel: data.optionLabel ?? "",
     };
-    return createHash("sha1").update(JSON.stringify(normalized)).digest("hex");
+    return createHash("sha1")
+        .update(FLIGHT_CARD_TEMPLATE_VERSION)
+        .update(JSON.stringify(normalized))
+        .digest("hex");
 }
 function rememberInCache(key, value) {
     if (cache.has(key)) {
@@ -99,6 +105,10 @@ export async function generateFlightCardImage(data) {
         const buffer = await renderToPng(data);
         const result = { buffer, contentType: "image/png" };
         rememberInCache(key, result);
+        if (!loggedTemplateVersion) {
+            loggedTemplateVersion = true;
+            console.log(`[flightCardImage] template=${FLIGHT_CARD_TEMPLATE_VERSION}`);
+        }
         return result;
     }
     catch (err) {
