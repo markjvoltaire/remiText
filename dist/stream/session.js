@@ -72,6 +72,17 @@ async function consumeMessages(app) {
                     catch (err) {
                         const messageText = err instanceof Error ? err.message : String(err);
                         console.error(`[msg] handler error space=${space.id}:`, messageText);
+                        if (!(err instanceof Error)) {
+                            try {
+                                console.error('[msg] handler error detail:', JSON.stringify(err));
+                            }
+                            catch {
+                                console.error('[msg] handler error detail (raw):', err);
+                            }
+                        }
+                        else {
+                            console.error('[msg] handler error stack:', err.stack ?? '(no stack)');
+                        }
                     }
                     if (isStreamStale() || isStreamRefreshDue()) {
                         return isStreamStale() ? 'stale' : 'refresh';
