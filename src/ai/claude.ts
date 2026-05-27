@@ -1090,6 +1090,7 @@ async function executeTool(
           partySize,
           confirmation: booked.confirmation,
           seatingType: pending.slot_type,
+          address: pending.address,
         });
 
         console.log(
@@ -1105,7 +1106,7 @@ async function executeTool(
           partySize,
           resyToken: booked.resyToken,
           confirmationCode: booked.confirmation,
-          location: searchParams?.location,
+          location: pending.address ?? searchParams?.location,
           seatingType: pending.slot_type,
           metadata: {
             config_token: pending.config_token,
@@ -1158,6 +1159,7 @@ async function executeTool(
         party_size: partySize,
         config_token: slot.config_token,
         slot_type: slot.slot_type,
+        address: venue.address,
         updated_at: new Date().toISOString(),
       };
 
@@ -1168,6 +1170,7 @@ async function executeTool(
         date,
         time: slot.time,
         partySize,
+        address: venue.address,
       });
 
       console.log(`[book_restaurant_table] staged confirm venue=${venueId} time=${slot.time}`);

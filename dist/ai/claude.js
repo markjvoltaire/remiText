@@ -869,6 +869,7 @@ async function executeTool(toolName, input, user, ctx) {
                     partySize,
                     confirmation: booked.confirmation,
                     seatingType: pending.slot_type,
+                    address: pending.address,
                 });
                 console.log(`[book_restaurant_table] booked venue=${venueId} time=${pending.time} conf=${booked.confirmation ?? 'n/a'}`);
                 await saveRestaurantBooking({
@@ -880,7 +881,7 @@ async function executeTool(toolName, input, user, ctx) {
                     partySize,
                     resyToken: booked.resyToken,
                     confirmationCode: booked.confirmation,
-                    location: searchParams?.location,
+                    location: pending.address ?? searchParams?.location,
                     seatingType: pending.slot_type,
                     metadata: {
                         config_token: pending.config_token,
@@ -928,6 +929,7 @@ async function executeTool(toolName, input, user, ctx) {
                 party_size: partySize,
                 config_token: slot.config_token,
                 slot_type: slot.slot_type,
+                address: venue.address,
                 updated_at: new Date().toISOString(),
             };
             await setPendingRestaurantBooking(user.id, staged);
@@ -936,6 +938,7 @@ async function executeTool(toolName, input, user, ctx) {
                 date,
                 time: slot.time,
                 partySize,
+                address: venue.address,
             });
             console.log(`[book_restaurant_table] staged confirm venue=${venueId} time=${slot.time}`);
             return JSON.stringify({

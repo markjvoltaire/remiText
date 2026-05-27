@@ -37,6 +37,8 @@ export interface RestaurantVenue {
   name: string;
   cuisine: string;
   neighborhood: string;
+  /** Street address from Resy when available */
+  address?: string;
   price_range: number;
   rating?: number;
   image_url?: string;
@@ -79,6 +81,7 @@ export interface PendingRestaurantBooking {
   party_size: number;
   config_token: string;
   slot_type?: string;
+  address?: string;
   updated_at: string;
 }
 

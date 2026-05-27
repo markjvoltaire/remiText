@@ -485,6 +485,12 @@ function pickVenueImageUrl(venue) {
     }
     return asHttpUrl(venue.venue_template_photo) ?? asHttpUrl(venue.icon);
 }
+function formatVenueAddress(location) {
+    const parts = [location?.address_1, location?.city, location?.state]
+        .map((p) => p?.trim())
+        .filter(Boolean);
+    return parts.join(', ');
+}
 function mapVenue(venueData) {
     const venue = venueData.venue;
     if (!venue?.name)
@@ -503,11 +509,13 @@ function mapVenue(venueData) {
         slot_type: slot.config?.type ?? "Standard",
         config_token: slot.config?.token ?? "",
     }));
+    const address = formatVenueAddress(venue.location) || undefined;
     return {
         venue_id: venueId,
         name: venue.name,
         cuisine,
         neighborhood: venue.neighborhood ?? "",
+        address,
         price_range: venue.price_range ?? 0,
         rating,
         image_url: pickVenueImageUrl(venue),
