@@ -68,6 +68,18 @@ export interface LastRestaurantSearchContext {
   selected_venue_id?: number;
 }
 
+/** Awaiting user "yes" before book_restaurant_table runs with confirm=true. */
+export interface PendingRestaurantBooking {
+  venue_id: number;
+  venue_name: string;
+  date: string;
+  time: string;
+  party_size: number;
+  config_token: string;
+  slot_type?: string;
+  updated_at: string;
+}
+
 /** Tracks the iMessage guid for the most recent preview-card photo stack. */
 export interface LastSentPreviewCards {
   parentMessageId: string;
@@ -95,6 +107,7 @@ export interface UserProfile {
   created_at: string;
   last_flight_search?: LastFlightSearchContext | null;
   last_restaurant_search?: LastRestaurantSearchContext | null;
+  pending_restaurant_booking?: PendingRestaurantBooking | null;
   last_sent_preview_cards?: LastSentPreviewCards | null;
   /** Last held order: GET /offers + POST /orders payloads until cleared after payment. */
   pending_duffel_order?: Record<string, unknown> | null;

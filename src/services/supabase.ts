@@ -5,6 +5,7 @@ import type {
   LastFlightSearchContext,
   LastRestaurantSearchContext,
   LastSentPreviewCards,
+  PendingRestaurantBooking,
   RestaurantBookingRecord,
   UserProfile,
 } from '../types.js';
@@ -123,6 +124,29 @@ export async function setLastRestaurantSearch(
 
 export async function clearLastRestaurantSearch(userId: string): Promise<void> {
   await supabase.from('users').update({ last_restaurant_search: null }).eq('id', userId);
+}
+
+export async function setPendingRestaurantBooking(
+  userId: string,
+  pending: PendingRestaurantBooking,
+): Promise<void> {
+  const { error } = await supabase
+    .from('users')
+    .update({ pending_restaurant_booking: pending })
+    .eq('id', userId);
+  if (error) {
+    console.warn(`[supabase] setPendingRestaurantBooking failed user=${userId}:`, error.message);
+  }
+}
+
+export async function clearPendingRestaurantBooking(userId: string): Promise<void> {
+  const { error } = await supabase
+    .from('users')
+    .update({ pending_restaurant_booking: null })
+    .eq('id', userId);
+  if (error) {
+    console.warn(`[supabase] clearPendingRestaurantBooking failed user=${userId}:`, error.message);
+  }
 }
 
 export async function setLastSentPreviewCards(

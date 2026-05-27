@@ -4,12 +4,12 @@ import { searchFlights, holdOrder, bookOrderInstant, getOfferPricing, payForOrde
 import { chargeViaSPT, refundPaymentIntent, isStripeConfigurationError } from '../services/stripe.js';
 import { offersToSMS, formatHeldOrderConfirmationSMS, sortFlightOffersByPrice, } from '../utils/formatFlights.js';
 import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
-import { formatLastRestaurantSearchForPrompt, summarizeVenuesForContext, slimVenuesForTool } from '../utils/restaurantSearchContext.js';
-import { restaurantsToSMS, restaurantDetailToSMS, formatReservationConfirmationSMS, reservationsListToSMS, formatReservationCancellationSMS, } from '../utils/formatRestaurants.js';
+import { formatLastRestaurantSearchForPrompt, formatPendingRestaurantBookingForPrompt, summarizeVenuesForContext, slimVenuesForTool, } from '../utils/restaurantSearchContext.js';
+import { restaurantsToSMS, restaurantDetailToSMS, formatRestaurantBookingConfirmPromptSMS, formatReservationConfirmationSMS, reservationsListToSMS, formatReservationCancellationSMS, } from '../utils/formatRestaurants.js';
 import { resolveReservationToCancel } from '../utils/restaurantReservations.js';
 import { searchRestaurants, getRestaurantAvailability, reserveRestaurantTable, listUpcomingReservations, cancelReservation, findVenueSlotByTime, isResyConfigured, formatResyError, ResyNotConfiguredError, ResyApiError, } from '../services/resy.js';
 import { computeAllInPrice, formatMoneyFromCents, logPriceBreakdown } from '../utils/pricing.js';
-import { setLastFlightSearch, clearLastFlightSearch, setLastRestaurantSearch, setPendingOrder, clearPendingOrder, saveFlightBooking, confirmFlightBooking, saveRestaurantBooking, getActiveRestaurantBookings, markRestaurantBookingCancelled, } from '../services/supabase.js';
+import { setLastFlightSearch, clearLastFlightSearch, setLastRestaurantSearch, setPendingRestaurantBooking, clearPendingRestaurantBooking, setPendingOrder, clearPendingOrder, saveFlightBooking, confirmFlightBooking, saveRestaurantBooking, getActiveRestaurantBookings, markRestaurantBookingCancelled, } from '../services/supabase.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import { isMonidConfigured, runSocialDiscovery, MonidNotConfiguredError, MonidApiError, } from '../services/monid.js';
@@ -121,7 +121,8 @@ Rules:
 - Only call get_restaurant_availability when the user asks for times, availability, or affirms a "Want to see times?" follow-up.
 - Before taking action on a specific flight, restate the exact flight (airline, time, price) and ask ONE question: "HOLD or BOOK?"
 - Restaurant booking IS LIVE via book_restaurant_table. NEVER say booking is unavailable, coming soon, or tell users to book on resy.com instead — unless the tool returns an error.
-- When the user says book/reserve with a time ("book the 5:45", "reserve 7pm", "book it at 5:45 PM"), call book_restaurant_table immediately with venue_id from the latest search (selected restaurant or the one just discussed), date, party_size, and parsed time. Do not ask "Book it?" if they already said book.
+- When the user says book/reserve with a time ("book the 5:45", "reserve 7pm", "book Carbone at 7"), call book_restaurant_table WITHOUT confirm (omit confirm or set false). Use the tool "formatted" field as your reply — it asks them to confirm. Do NOT charge or book until they reply yes.
+- Restaurant confirmation (only after you sent a "Just to confirm … Reply yes to book" message): YES intent → book_restaurant_table with confirm=true and the same venue_id, date, party_size, time. NO / wait / nevermind → do not book; ask what they want.
 - If only the time is given, use selected_venue_id from restaurant context below, or the sole venue in the list, or the restaurant name from recent messages.
 
 Intent recognition (only after you have just asked "HOLD or BOOK?" on a specific flight):
@@ -146,7 +147,7 @@ Local recommendations (what's trending) — vibe required before searching:
 - Flight requests → search_flights, hold_flight, book_flight, confirm_booking as appropriate.
 - Restaurant / table / dinner availability (booking intent) → search_restaurants. If location is missing, ask which city.
 - User picks a restaurant from results → get_restaurant_availability with venue_id from the latest search.
-- User confirms a restaurant reservation → book_restaurant_table with venue_id, date, party_size, and time from the latest search.
+- User confirms a staged restaurant reservation (yes after "Just to confirm") → book_restaurant_table with confirm=true.
 - User asks about upcoming restaurant bookings → list_restaurant_reservations.
 - User cancels a restaurant reservation → cancel_restaurant_reservation with venue_name and/or date, or resy_token after listing.
 - BOOK intent → book_flight (charges the user and creates the order in one step; works for any carrier, including Frontier and other instant-payment airlines).
@@ -159,7 +160,8 @@ Output formatting:
 - When search_restaurants returns results with a "formatted" field and no "error", use "formatted" as your reply verbatim (it already ends with a short CTA). Never say search failed when formatted is present. Do not add a second question line.
 - When search_restaurants returns { error: true, message }, relay the message to the user briefly; do not invent a generic failure if a specific message is provided.
 - When get_restaurant_availability returns results, use the "formatted" field as your reply verbatim (includes booking CTA). Do not add another closing line.
-- When book_restaurant_table returns successfully, use the "formatted" field as your reply verbatim.
+- When book_restaurant_table returns needs_confirmation: true, use "formatted" as your reply verbatim — do not book yet.
+- When book_restaurant_table returns success: true after confirm, use the "formatted" field as your reply verbatim.
 - When list_restaurant_reservations returns successfully, use the "formatted" field as your reply verbatim.
 - When cancel_restaurant_reservation returns successfully, use the "formatted" field as your reply verbatim.
 - When search_tiktok or search_instagram returns needs_vibe: true, ask what they are in the mood for (one short SMS with examples). Do not mention tools or APIs.
@@ -781,6 +783,7 @@ async function executeTool(toolName, input, user, ctx) {
                 message: 'Dining search is temporarily unavailable. Try again later.',
             });
         }
+        const confirm = input.confirm === true;
         const venueId = input.venue_id;
         const time = input.time?.trim();
         const searchParams = user.last_restaurant_search?.search_params;
@@ -800,6 +803,56 @@ async function executeTool(toolName, input, user, ctx) {
             });
         }
         try {
+            const pending = user.pending_restaurant_booking;
+            if (confirm) {
+                if (!pending ||
+                    pending.venue_id !== venueId ||
+                    pending.date !== date ||
+                    pending.party_size !== partySize) {
+                    return JSON.stringify({
+                        error: true,
+                        message: 'No matching reservation to confirm. Ask them what they want to book, then call book_restaurant_table without confirm first.',
+                    });
+                }
+                const booked = await reserveRestaurantTable({
+                    configToken: pending.config_token,
+                    date,
+                    partySize,
+                });
+                const formatted = formatReservationConfirmationSMS({
+                    venueName: pending.venue_name,
+                    date,
+                    time: pending.time,
+                    partySize,
+                    confirmation: booked.confirmation,
+                    seatingType: pending.slot_type,
+                });
+                console.log(`[book_restaurant_table] booked venue=${venueId} time=${pending.time} conf=${booked.confirmation ?? 'n/a'}`);
+                await saveRestaurantBooking({
+                    userId: user.id,
+                    venueId,
+                    venueName: pending.venue_name,
+                    reservationDate: date,
+                    reservationTime: pending.time,
+                    partySize,
+                    resyToken: booked.resyToken,
+                    confirmationCode: booked.confirmation,
+                    location: searchParams?.location,
+                    seatingType: pending.slot_type,
+                    metadata: {
+                        config_token: pending.config_token,
+                        payment_method_id: booked.paymentMethodId,
+                    },
+                });
+                await clearPendingRestaurantBooking(user.id);
+                return JSON.stringify({
+                    success: true,
+                    formatted,
+                    confirmation: booked.confirmation,
+                    venue_name: pending.venue_name,
+                    time: pending.time,
+                });
+            }
             const venue = await getRestaurantAvailability({
                 venueId,
                 date,
@@ -824,47 +877,42 @@ async function executeTool(toolName, input, user, ctx) {
                     message: `Couldn't match "${time}" at ${venue.name}. Available times include: ${sample || 'none'}.`,
                 });
             }
-            const booked = await reserveRestaurantTable({
-                configToken: slot.config_token,
-                date,
-                partySize,
-            });
-            const formatted = formatReservationConfirmationSMS({
-                venueName: venue.name,
-                date,
-                time: slot.time,
-                partySize,
-                confirmation: booked.confirmation,
-                seatingType: slot.slot_type,
-            });
-            console.log(`[book_restaurant_table] booked venue=${venueId} time=${slot.time} conf=${booked.confirmation ?? 'n/a'}`);
-            await saveRestaurantBooking({
-                userId: user.id,
-                venueId,
-                venueName: venue.name,
-                reservationDate: date,
-                reservationTime: slot.time,
-                partySize,
-                resyToken: booked.resyToken,
-                confirmationCode: booked.confirmation,
-                location: searchParams?.location ?? venue.neighborhood,
-                seatingType: slot.slot_type,
-                metadata: {
-                    config_token: slot.config_token,
-                    payment_method_id: booked.paymentMethodId,
-                },
-            });
-            return JSON.stringify({
-                success: true,
-                formatted,
-                confirmation: booked.confirmation,
+            const staged = {
+                venue_id: venueId,
                 venue_name: venue.name,
+                date,
                 time: slot.time,
+                party_size: partySize,
+                config_token: slot.config_token,
+                slot_type: slot.slot_type,
+                updated_at: new Date().toISOString(),
+            };
+            await setPendingRestaurantBooking(user.id, staged);
+            const formatted = formatRestaurantBookingConfirmPromptSMS({
+                venueName: venue.name,
+                date,
+                time: slot.time,
+                partySize,
+            });
+            console.log(`[book_restaurant_table] staged confirm venue=${venueId} time=${slot.time}`);
+            return JSON.stringify({
+                needs_confirmation: true,
+                formatted,
+                pending: {
+                    venue_id: venueId,
+                    venue_name: venue.name,
+                    date,
+                    time: slot.time,
+                    party_size: partySize,
+                },
             });
         }
         catch (err) {
             const message = formatResyError(err);
             console.error(`[book_restaurant_table] ${message}`);
+            if (confirm) {
+                await clearPendingRestaurantBooking(user.id);
+            }
             const slotGone = err instanceof ResyApiError &&
                 (err.status === 410 ||
                     /no longer available|slot|taken|invalid book token/i.test(err.message));
@@ -872,7 +920,7 @@ async function executeTool(toolName, input, user, ctx) {
                 error: true,
                 slot_taken: slotGone,
                 message: slotGone
-                    ? `That time just got taken. Want me to pull fresh times for ${time}?`
+                    ? `That time just got taken. Want me to pull fresh times?`
                     : message,
             });
         }
@@ -1073,12 +1121,13 @@ async function executeTool(toolName, input, user, ctx) {
 export async function runAgentLoop(userMessage, history, user) {
     const flightPending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
     const restaurantPending = formatLastRestaurantSearchForPrompt(user.last_restaurant_search ?? undefined);
+    const restaurantConfirmPending = formatPendingRestaurantBookingForPrompt(user.pending_restaurant_booking ?? undefined);
     const profileContext = user.city?.trim()
         ? `User profile: name=${user.name}, home_city=${user.city.trim()}. Default restaurant and local discovery searches to ${user.city.trim()} unless the user specifies another location.`
         : user.name
             ? `User profile: name=${user.name}.`
             : '';
-    const contextParts = [profileContext, flightPending, restaurantPending].filter(Boolean);
+    const contextParts = [profileContext, flightPending, restaurantPending, restaurantConfirmPending].filter(Boolean);
     const todayISO = new Date().toISOString().split('T')[0];
     const resolved = resolveRelativeDates(userMessage, todayISO);
     const systemBase = contextParts.length ? `${SYSTEM_PROMPT}\n\n${contextParts.join('\n\n')}` : SYSTEM_PROMPT;

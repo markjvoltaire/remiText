@@ -42,7 +42,7 @@ export function buildPreviewReplyContext(user, kind, partIndex) {
             'Default action for "tell me more", "more info", "what\'s it like", "story", "what to expect": write a SHORT 2-3 sentence brief in plain text — cuisine, vibe, neighborhood, and what diners can expect. End with one short follow-up question like "Want to see times?".',
             'When describing the venue, you MAY use general knowledge for well-known restaurants. If you do NOT confidently know this specific venue, describe it factually using only the cuisine, neighborhood, price, and rating above — never invent specific dishes, chef names, awards, or history.',
             'Only call get_restaurant_availability when the user explicitly asks for times, availability, or says yes/sure to "Want to see times?".',
-            'If they say book/reserve with a time (e.g. "book the 5:45"), call book_restaurant_table immediately for this venue_id.',
+            'If they say book/reserve with a time (e.g. "book the 5:45"), call book_restaurant_table without confirm to send a confirmation SMS first — do not book until they reply yes.',
         ].join(' ');
     }
     const offer = user.last_flight_search?.offers?.[partIndex];
@@ -137,5 +137,20 @@ export function augmentBookRestaurantCommand(text, user, history) {
         return `${text}\n\n[Context: User wants to book a table at ${time} but no single restaurant is selected. Ask which restaurant from the latest search, or call get_restaurant_availability first.]`;
     }
     const { date, party_size: partySize } = ctx.search_params;
-    return `${text}\n\n[Context: User wants to book ${venue.name} (venue_id=${venue.venue_id}) on ${date} for ${partySize} at ${time}. Call book_restaurant_table NOW with venue_id=${venue.venue_id}, date=${date}, party_size=${partySize}, time="${time}". Restaurant booking IS available — never say coming soon or tell them to use the Resy app.]`;
+    return `${text}\n\n[Context: User wants to book ${venue.name} (venue_id=${venue.venue_id}) on ${date} for ${partySize} at ${time}. Call book_restaurant_table WITHOUT confirm (omit confirm or confirm=false) with venue_id=${venue.venue_id}, date=${date}, party_size=${partySize}, time="${time}". Use the tool's formatted field as your reply — do NOT book until they say yes. Restaurant booking IS available — never say coming soon or tell them to use the Resy app.]`;
+}
+const RESTAURANT_CONFIRM_YES = /^(yes|yep|yeah|y|sure|ok|okay|confirm|confirmed|do it|book it|go ahead|sounds good|let's do it|lets do it)\b/i;
+const RESTAURANT_CONFIRM_NO = /^(no|nope|nah|not yet|wait|stop|cancel|nevermind|never mind)\b/i;
+/** After a confirmation prompt, user said yes → book with confirm=true. */
+export function augmentRestaurantBookingYes(text, user) {
+    const pending = user.pending_restaurant_booking;
+    if (!pending)
+        return text;
+    if (RESTAURANT_CONFIRM_NO.test(text.trim())) {
+        return `${text}\n\n[Context: User declined the pending ${pending.venue_name} reservation. Do not call book_restaurant_table. Ask what they'd like instead.]`;
+    }
+    if (!RESTAURANT_CONFIRM_YES.test(text.trim()) && !/\b(yes|yep|yeah|sure|ok|confirm)\b/i.test(text)) {
+        return text;
+    }
+    return `${text}\n\n[Context: User confirmed the pending reservation. Call book_restaurant_table with confirm=true, venue_id=${pending.venue_id}, date=${pending.date}, party_size=${pending.party_size}, time="${pending.time}".]`;
 }

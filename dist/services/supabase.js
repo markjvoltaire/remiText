@@ -83,6 +83,24 @@ export async function setLastRestaurantSearch(userId, ctx) {
 export async function clearLastRestaurantSearch(userId) {
     await supabase.from('users').update({ last_restaurant_search: null }).eq('id', userId);
 }
+export async function setPendingRestaurantBooking(userId, pending) {
+    const { error } = await supabase
+        .from('users')
+        .update({ pending_restaurant_booking: pending })
+        .eq('id', userId);
+    if (error) {
+        console.warn(`[supabase] setPendingRestaurantBooking failed user=${userId}:`, error.message);
+    }
+}
+export async function clearPendingRestaurantBooking(userId) {
+    const { error } = await supabase
+        .from('users')
+        .update({ pending_restaurant_booking: null })
+        .eq('id', userId);
+    if (error) {
+        console.warn(`[supabase] clearPendingRestaurantBooking failed user=${userId}:`, error.message);
+    }
+}
 export async function setLastSentPreviewCards(userId, cards) {
     const { error } = await supabase
         .from('users')

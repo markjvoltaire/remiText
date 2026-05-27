@@ -18,6 +18,7 @@ import { normalizeContactKey } from '../utils/contactId.js';
 import { stripMarkdown } from '../utils/stripMarkdown.js';
 import {
   augmentBookRestaurantCommand,
+  augmentRestaurantBookingYes,
   augmentUserMessageWithReplyContext,
   augmentUserMessageWithSelection,
   inferPreviewKind,
@@ -89,6 +90,12 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   if (bookAugmented !== text) {
     console.log('[msg] book-restaurant intent augmented');
     agentInput = bookAugmented;
+  }
+
+  const confirmAugmented = augmentRestaurantBookingYes(agentInput, user);
+  if (confirmAugmented !== agentInput) {
+    console.log('[msg] restaurant booking confirmation augmented');
+    agentInput = confirmAugmented;
   }
 
   const replyTarget = await resolveInboundReplyTarget(space.id, id, text, message);

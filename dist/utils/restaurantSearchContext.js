@@ -45,6 +45,16 @@ export function formatLastRestaurantSearchForPrompt(ctx) {
         'USE THIS CONTEXT ONLY when the user is picking a venue from the list above (by name, position like "first/second", or by replying to a preview image).',
         'DO NOT reuse this list as a reply if the user is asking for a NEW search — for example a different cuisine, neighborhood, date, party size, or city. In that case you MUST call search_restaurants with the new parameters.',
         'NEVER relabel these venues as a different cuisine or different date than the parameters above. If the user asks for sushi and the cached list is not sushi, call search_restaurants again.',
-        'If the user wants to book, use book_restaurant_table with venue_id, date, party_size, and the exact time they chose from the slots above.',
+        'If the user wants to book, call book_restaurant_table (without confirm) to send a confirmation SMS first. Only call with confirm=true after they reply yes.',
     ].join('\n');
+}
+export function formatPendingRestaurantBookingForPrompt(pending) {
+    if (!pending)
+        return '';
+    return [
+        `Pending restaurant booking (awaiting user yes): ${pending.venue_name} (venue_id=${pending.venue_id}) on ${pending.date} at ${pending.time} for ${pending.party_size}.`,
+        'If the user replies yes/yep/ok/sure/confirm, call book_restaurant_table with confirm=true and these exact parameters.',
+        'If they say no/wait/cancel, do not book — ask what they want instead.',
+        'If they request a different restaurant or time, call book_restaurant_table without confirm to stage a new confirmation.',
+    ].join(' ');
 }

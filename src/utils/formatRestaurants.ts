@@ -1,6 +1,7 @@
 import type { RestaurantVenue } from '../types.js';
 import {
   compactTime,
+  formatBookingDate,
   formatHumanDate,
   formatPartySize,
   formatPriceRange,
@@ -90,6 +91,20 @@ export function restaurantDetailToSMS(venue: RestaurantVenue): string {
 
   lines.push('', 'Reply with a time to book.');
   return lines.join('\n');
+}
+
+export function formatRestaurantBookingConfirmPromptSMS(params: {
+  venueName: string;
+  date: string;
+  time: string;
+  partySize: number;
+}): string {
+  const when = formatSearchHeader([
+    formatBookingDate(params.date),
+    compactTime(params.time),
+    formatPartySize(params.partySize),
+  ]);
+  return `Just to confirm · ${params.venueName}\n${when}?\n\nReply yes to book.`;
 }
 
 export function formatReservationConfirmationSMS(params: {

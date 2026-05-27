@@ -11,6 +11,19 @@ export function formatHumanDate(dateStr) {
         timeZone: 'UTC',
     });
 }
+/** Reservation confirmations — include year for clarity. */
+export function formatBookingDate(dateStr) {
+    const date = new Date(`${dateStr}T12:00:00Z`);
+    if (Number.isNaN(date.getTime()))
+        return dateStr;
+    return date.toLocaleDateString('en-US', {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone: 'UTC',
+    });
+}
 export function formatPartySize(partySize) {
     if (partySize === 1)
         return 'for 1';

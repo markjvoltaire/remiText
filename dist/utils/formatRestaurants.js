@@ -1,4 +1,4 @@
-import { compactTime, formatHumanDate, formatPartySize, formatPriceRange, formatSearchHeader, } from './smsFormat.js';
+import { compactTime, formatBookingDate, formatHumanDate, formatPartySize, formatPriceRange, formatSearchHeader, } from './smsFormat.js';
 const MAX_VENUES = 5;
 const MAX_SLOTS_PREVIEW = 3;
 function formatSlotTimes(slots, limit) {
@@ -73,6 +73,14 @@ export function restaurantDetailToSMS(venue) {
     }
     lines.push('', 'Reply with a time to book.');
     return lines.join('\n');
+}
+export function formatRestaurantBookingConfirmPromptSMS(params) {
+    const when = formatSearchHeader([
+        formatBookingDate(params.date),
+        compactTime(params.time),
+        formatPartySize(params.partySize),
+    ]);
+    return `Just to confirm · ${params.venueName}\n${when}?\n\nReply yes to book.`;
 }
 export function formatReservationConfirmationSMS(params) {
     const when = formatSearchHeader([

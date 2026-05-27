@@ -144,7 +144,7 @@ export const tools: Anthropic.Tool[] = [
   {
     name: 'book_restaurant_table',
     description:
-      'Book a Resy table for a specific time slot. Call immediately when the user says book/reserve with a time (e.g. "book the 5:45", "reserve 7pm") — do not say booking is unavailable. Use venue_id from selected_venue_id, the restaurant they discussed, or the latest search. Requires date and time matching an available slot.',
+      'Stage or complete a Resy table booking. First call (confirm=false/omitted) when the user says book/reserve with a time — returns a confirmation SMS; do not book yet. Second call (confirm=true) only after they reply yes to that confirmation. Use venue_id from the latest search.',
     input_schema: {
       type: 'object',
       properties: {
@@ -163,6 +163,11 @@ export const tools: Anthropic.Tool[] = [
         time: {
           type: 'string',
           description: 'Reservation time exactly as shown in availability, e.g. "7:00 PM" or "7pm"',
+        },
+        confirm: {
+          type: 'boolean',
+          description:
+            'Set true only after the user replied yes to a "Just to confirm" message. Omit or false on the first book request.',
         },
       },
       required: ['venue_id', 'date', 'time'],
