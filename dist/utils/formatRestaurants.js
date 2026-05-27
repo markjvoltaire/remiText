@@ -44,9 +44,11 @@ export function restaurantsToSMS(venues, meta) {
         meta.location,
         formatHumanDate(meta.date),
         formatPartySize(meta.partySize),
+        ...(meta.mealPeriod ? [meta.mealPeriod] : []),
     ]);
     if (venues.length === 0) {
-        return `${header}\n\nNothing open that night. Try another date or neighborhood?`;
+        const when = meta.mealPeriod ? `for ${meta.mealPeriod} ` : '';
+        return `${header}\n\nNothing open ${when}that night. Try another time or date?`;
     }
     const countLabel = venues.length === 1 ? '1 table open' : `${venues.length} tables open`;
     const blocks = venues.slice(0, MAX_VENUES).map(formatVenueBlock);

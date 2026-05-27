@@ -63,6 +63,14 @@ import {
   getActiveRestaurantBookings,
   markRestaurantBookingCancelled,
 } from '../services/supabase.js';
+import {
+  filterVenuesByMealPeriod,
+  filterSlotsByMealPeriod,
+  mealPeriodLabel,
+  normalizeMealPeriod,
+  parseMealPeriodFromText,
+  type MealPeriod,
+} from '../utils/restaurantTimeFilter.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import {
@@ -205,6 +213,7 @@ Rules:
 - When search_flights returns a formatted option list, every line block in that list matches one preview image (same count, cheapest-first order). Never shorten or drop options from that list.
 - When search_restaurants returns a formatted list, use it verbatim — do not reformat, paraphrase, or omit options.
 - Always resolve relative dates (e.g. "Friday", "tonight", "this Saturday") using today's date before calling search_flights or search_restaurants.
+- When the user says night, dinner, evening, lunch, brunch, or afternoon, pass meal_period on search_restaurants (night/dinner/evening → "night", lunch → "lunch", etc.). Evening and dinner slots start at 5pm — never show 3pm times for "Friday night".
 - Decide whether the user wants a one-way or round-trip flight. If round-trip, collect both departure_date and return_date before calling search_flights.
 - If pending flight options are listed in context below, use them: when the user picks an airline or says first/second/third/fourth/fifth (by position), pick the matching offer_id. Do not ask for dates again if they already gave them or if those options already reflect the trip.
 - If the user's message includes [Context: ...] indicating they replied to a specific preview image, treat that option as their selection — do not ask "which one?"
@@ -296,6 +305,8 @@ export interface AgentLoopResult {
 
 interface AgentSessionContext {
   attachments: PreviewCardImage[];
+  /** Original inbound text for meal-period inference (night, dinner, lunch, etc.). */
+  userMessage: string;
 }
 
 async function attachFlightCardSafely(
@@ -869,6 +880,8 @@ async function executeTool(
     const date = input.date as string;
     const partySize = (input.party_size as number | undefined) ?? 2;
     const query = (input.query as string | undefined) || undefined;
+    const mealPeriod: MealPeriod | null =
+      normalizeMealPeriod(input.meal_period) ?? parseMealPeriodFromText(ctx.userMessage);
 
     try {
       let venues = await searchRestaurants({ location, date, partySize, query });
@@ -878,22 +891,40 @@ async function executeTool(
         queryRelaxed = true;
       }
 
+      if (mealPeriod) {
+        venues = filterVenuesByMealPeriod(venues, mealPeriod);
+      }
+
       const surfaced = venues;
-      let formatted = restaurantsToSMS(surfaced, { location, date, partySize });
+      const mealLabel = mealPeriod ? mealPeriodLabel(mealPeriod) : undefined;
+      let formatted = restaurantsToSMS(surfaced, { location, date, partySize, mealPeriod: mealLabel });
       if (queryRelaxed && surfaced.length > 0) {
         formatted = `No exact match for "${query}" — here's what's open:\n\n${formatted}`;
+      }
+      if (mealPeriod && surfaced.length === 0) {
+        formatted = `${formatted}\n\nWant me to check the full day instead?`;
       }
 
       const saved = await setLastRestaurantSearch(user.id, {
         venues: summarizeVenuesForContext(surfaced),
         updated_at: new Date().toISOString(),
-        search_params: { location, date, party_size: partySize, query },
+        search_params: {
+          location,
+          date,
+          party_size: partySize,
+          query,
+          meal_period: mealLabel,
+        },
       });
       if (!saved) {
         console.warn('[search_restaurants] results ok but last_restaurant_search not persisted (run Supabase migration?)');
       }
 
-      return JSON.stringify({ formatted, venues: slimVenuesForTool(surfaced) });
+      return JSON.stringify({
+        formatted,
+        venues: slimVenuesForTool(surfaced),
+        meal_period: mealLabel ?? null,
+      });
     } catch (err) {
       const message =
         err instanceof ResyNotConfiguredError
@@ -934,7 +965,7 @@ async function executeTool(
     }
 
     try {
-      const venue = await getRestaurantAvailability({
+      let venue = await getRestaurantAvailability({
         venueId,
         date,
         partySize,
@@ -946,6 +977,20 @@ async function executeTool(
           message: `No availability found for venue ${venueId} on ${date} for ${partySize}.`,
         });
       }
+
+      const mealPeriod =
+        normalizeMealPeriod(searchParams?.meal_period) ?? parseMealPeriodFromText(ctx.userMessage);
+      if (mealPeriod) {
+        const filtered = filterSlotsByMealPeriod(venue.slots, mealPeriod);
+        if (filtered.length === 0) {
+          return JSON.stringify({
+            error: true,
+            message: `No ${mealPeriodLabel(mealPeriod)} times at ${venue.name} on ${date}. Want me to check the full day?`,
+          });
+        }
+        venue = { ...venue, slots: filtered };
+      }
+
       const formatted = restaurantDetailToSMS(venue);
 
       if (user.last_restaurant_search?.search_params) {
@@ -1399,7 +1444,7 @@ export async function runAgentLoop(
     { role: 'user', content: userMessage },
   ];
 
-  const ctx: AgentSessionContext = { attachments: [] };
+  const ctx: AgentSessionContext = { attachments: [], userMessage };
   let modelRound = 0;
 
   while (true) {

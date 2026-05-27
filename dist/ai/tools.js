@@ -104,7 +104,11 @@ export const tools = [
                 },
                 query: {
                     type: 'string',
-                    description: 'Optional filter by restaurant name or cuisine, e.g. "italian", "sushi"',
+                    description: 'Optional filter by restaurant name or cuisine, e.g. "italian", "sushi", "STK Miami"',
+                },
+                meal_period: {
+                    type: 'string',
+                    description: 'When the user specifies time of day: "night" or "dinner" or "evening" for 5pm+ slots; "lunch", "brunch", "breakfast", "afternoon", "late_night". Omit if they did not specify.',
                 },
             },
             required: ['location', 'date'],

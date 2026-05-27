@@ -58,6 +58,8 @@ export interface LastRestaurantSearchParams {
   date: string;
   party_size: number;
   query?: string;
+  /** dinner, night, lunch, etc. — filters displayed slots */
+  meal_period?: string;
 }
 
 export interface LastRestaurantSearchContext {
