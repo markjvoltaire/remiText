@@ -25,21 +25,6 @@ function durationBetween(start?: string, end?: string): string {
   return `${hours}h ${minutes}m`;
 }
 
-function ordinal(day: number): string {
-  const rem100 = day % 100;
-  if (rem100 >= 11 && rem100 <= 13) return `${day}th`;
-  switch (day % 10) {
-    case 1:
-      return `${day}st`;
-    case 2:
-      return `${day}nd`;
-    case 3:
-      return `${day}rd`;
-    default:
-      return `${day}th`;
-  }
-}
-
 function formatDisplayDate(dateStr: string | undefined): string {
   if (!dateStr) return '';
   const date = new Date(`${dateStr}T12:00:00Z`);
@@ -50,7 +35,7 @@ function formatDisplayDate(dateStr: string | undefined): string {
   });
   const day = date.getUTCDate();
   const year = date.getUTCFullYear();
-  return `${month} ${ordinal(day)} ${year}`;
+  return `${month} ${day}, ${year}`;
 }
 
 /**

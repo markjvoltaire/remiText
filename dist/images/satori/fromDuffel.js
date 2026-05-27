@@ -27,21 +27,6 @@ function durationBetween(start, end) {
         return `${hours}h`;
     return `${hours}h ${minutes}m`;
 }
-function ordinal(day) {
-    const rem100 = day % 100;
-    if (rem100 >= 11 && rem100 <= 13)
-        return `${day}th`;
-    switch (day % 10) {
-        case 1:
-            return `${day}st`;
-        case 2:
-            return `${day}nd`;
-        case 3:
-            return `${day}rd`;
-        default:
-            return `${day}th`;
-    }
-}
 function formatDisplayDate(dateStr) {
     if (!dateStr)
         return '';
@@ -54,7 +39,7 @@ function formatDisplayDate(dateStr) {
     });
     const day = date.getUTCDate();
     const year = date.getUTCFullYear();
-    return `${month} ${ordinal(day)} ${year}`;
+    return `${month} ${day}, ${year}`;
 }
 /**
  * Build a `FlightCardInput` from a Duffel-derived `HeldOrder`, using the
