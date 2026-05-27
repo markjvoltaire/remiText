@@ -1,16 +1,40 @@
 import { Duffel } from '@duffel/api';
 import { computeAllInPrice, logPriceBreakdown } from '../utils/pricing.js';
-function getDuffelApiKey() {
-    const isProd = process.env.NODE_ENV === 'production';
-    const key = isProd ? process.env.DUFFEL_API_KEY_PROD : process.env.DUFFEL_API_KEY;
-    if (!key) {
-        throw new Error(isProd ? 'Missing DUFFEL_API_KEY_PROD' : 'Missing DUFFEL_API_KEY');
+/** `DUFFEL_ENV=live` uses live token; anything else (including unset) uses test. */
+export function getDuffelEnvironment() {
+    const raw = process.env.DUFFEL_ENV?.trim().toLowerCase();
+    return raw === 'live' ? 'live' : 'test';
+}
+function getDuffelApiKey(mode) {
+    if (mode === 'live') {
+        const key = process.env.DUFFEL_API_KEY_PROD?.trim();
+        if (!key)
+            throw new Error('Missing DUFFEL_API_KEY_PROD (set DUFFEL_ENV=live)');
+        return key;
     }
+    const key = process.env.DUFFEL_API_KEY?.trim();
+    if (!key)
+        throw new Error('Missing DUFFEL_API_KEY (Duffel test token)');
     return key;
 }
-const duffelMode = process.env.NODE_ENV === 'production' ? 'live' : 'test';
-console.log(`[duffel] using ${duffelMode} API token`);
-const duffel = new Duffel({ token: getDuffelApiKey() });
+function tokenHint(token) {
+    const prefix = token.slice(0, 12);
+    if (prefix.startsWith('duffel_test_'))
+        return 'duffel_test_…';
+    if (prefix.startsWith('duffel_live_'))
+        return 'duffel_live_…';
+    return `${prefix}…`;
+}
+const duffelMode = getDuffelEnvironment();
+const duffelApiKey = getDuffelApiKey(duffelMode);
+console.log(`[duffel] environment=${duffelMode} token=${tokenHint(duffelApiKey)}`);
+if (duffelMode === 'test' && duffelApiKey.startsWith('duffel_live_')) {
+    console.warn('[duffel] DUFFEL_ENV=test but token looks live — use a duffel_test_ key in DUFFEL_API_KEY');
+}
+if (duffelMode === 'live' && duffelApiKey.startsWith('duffel_test_')) {
+    console.warn('[duffel] DUFFEL_ENV=live but token looks like test — use DUFFEL_API_KEY_PROD');
+}
+const duffel = new Duffel({ token: duffelApiKey });
 /** Clone Duffel `data` payloads for JSONB storage / logs without mutation surprises. */
 export function serializeDuffelData(data) {
     return JSON.parse(JSON.stringify(data));

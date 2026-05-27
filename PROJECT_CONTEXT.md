@@ -179,7 +179,9 @@ Used when computing amounts for Stripe / user-facing totals.
 | `SUPABASE_URL` | Yes | Supabase project URL. |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Server-side Supabase access. |
 | `ANTHROPIC_API_KEY` | Yes | Claude API. |
-| `DUFFEL_API_KEY` | Yes | Duffel API token. |
+| `DUFFEL_API_KEY` | Yes (test) | Duffel **test** API token (`duffel_test_…`). Used when `DUFFEL_ENV` is unset or `test`. |
+| `DUFFEL_ENV` | No | `test` (default) or `live`. Set `live` + `DUFFEL_API_KEY_PROD` for real bookings. |
+| `DUFFEL_API_KEY_PROD` | If live | Duffel **live** token (`duffel_live_…`). Only when `DUFFEL_ENV=live`. |
 | `STRIPE_SECRET_KEY` | Yes | Stripe secret key. |
 | `SPECTRUM_PROVIDER` | No | `imessage` (default) or `terminal`. |
 | `PORT` | No | If set and valid, health HTTP server. |
