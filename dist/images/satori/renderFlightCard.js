@@ -6,7 +6,7 @@ import satori from "satori";
 import { Resvg } from "@resvg/resvg-js";
 import { FlightCard } from "./templates/FlightCard.js";
 /** Bump when card layout changes — busts in-process cache and shows in deploy logs. */
-export const FLIGHT_CARD_TEMPLATE_VERSION = "v3-boarding-pass";
+export const FLIGHT_CARD_TEMPLATE_VERSION = "v4-remi-one-pager";
 const WIDTH = 1080;
 const HEIGHT = 1440;
 const __filename = fileURLToPath(import.meta.url);

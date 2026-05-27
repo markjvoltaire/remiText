@@ -1,11 +1,5 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
-const BG = "#F2F2F7";
-const CARD = "#FFFFFF";
-const INK = "#111111";
-const LABEL = "#9CA3AF";
-const PURPLE = "#7C5CFF";
-const LINE = "#D1D5DB";
-const NOTCH = "#F2F2F7";
+import { REMI } from "../remiTheme.js";
 const AIRPORT_CITIES = {
     ATL: "Atlanta",
     BOS: "Boston",
@@ -75,14 +69,14 @@ function MapPattern() {
     for (let row = 0; row < 8; row++) {
         for (let col = 0; col < 14; col++) {
             if ((row + col) % 3 === 0) {
-                dots.push(_jsx("circle", { cx: 40 + col * 72, cy: 24 + row * 44, r: 2, fill: "#E5E7EB" }, `${row}-${col}`));
+                dots.push(_jsx("circle", { cx: 40 + col * 72, cy: 24 + row * 44, r: 2, fill: REMI.tile }, `${row}-${col}`));
             }
         }
     }
-    return (_jsxs("svg", { width: "100%", height: 280, viewBox: "0 0 984 280", style: { position: "absolute", top: 0, left: 0, display: "flex" }, children: [dots, _jsx("path", { d: "M120 200 Q492 80 864 200", stroke: "#E5E7EB", strokeWidth: 1.5, fill: "none" })] }));
+    return (_jsxs("svg", { width: "100%", height: 280, viewBox: "0 0 984 280", style: { position: "absolute", top: 0, left: 0, display: "flex" }, children: [dots, _jsx("path", { d: "M120 200 Q492 80 864 200", stroke: REMI.line, strokeWidth: 1.5, fill: "none" })] }));
 }
 function RouteArc() {
-    return (_jsxs("svg", { width: 520, height: 100, viewBox: "0 0 520 100", style: { display: "flex" }, children: [_jsx("path", { d: "M24 72 Q260 8 496 72", stroke: LINE, strokeWidth: 3, strokeDasharray: "10 10", fill: "none" }), _jsx("circle", { cx: 24, cy: 72, r: 10, fill: PURPLE }), _jsx("circle", { cx: 496, cy: 72, r: 10, fill: PURPLE }), _jsx("path", { d: "M248 28 L268 38 L258 48 L278 38 Z", fill: PURPLE, transform: "rotate(12 258 38)" })] }));
+    return (_jsxs("svg", { width: 520, height: 100, viewBox: "0 0 520 100", style: { display: "flex" }, children: [_jsx("path", { d: "M24 72 Q260 8 496 72", stroke: REMI.lineDashed, strokeWidth: 2, strokeDasharray: "10 10", fill: "none" }), _jsx("circle", { cx: 24, cy: 72, r: 9, fill: REMI.primary }), _jsx("circle", { cx: 496, cy: 72, r: 9, fill: REMI.primary }), _jsx("path", { d: "M248 28 L268 38 L258 48 L278 38 Z", fill: REMI.primary, transform: "rotate(12 258 38)" })] }));
 }
 function Barcode({ seed }) {
     const bars = [];
@@ -96,7 +90,7 @@ function Barcode({ seed }) {
         bars.push(_jsx("div", { style: {
                 width: wide ? 5 : 3,
                 height: 108,
-                backgroundColor: INK,
+                backgroundColor: REMI.primary,
                 marginRight: 2,
                 display: "flex",
             } }, i));
@@ -119,12 +113,12 @@ function InfoCell({ label, value, align = "center", }) {
         }, children: [_jsx("div", { style: {
                     fontSize: 22,
                     fontWeight: 400,
-                    color: LABEL,
+                    color: REMI.mutedForeground,
                     display: "flex",
                 }, children: label }), _jsx("div", { style: {
                     fontSize: 34,
                     fontWeight: 700,
-                    color: INK,
+                    color: REMI.primary,
                     marginTop: 10,
                     display: "flex",
                 }, children: value })] }));
@@ -140,13 +134,13 @@ function TicketPerforation() {
                     width: 28,
                     height: 28,
                     borderRadius: 14,
-                    backgroundColor: NOTCH,
+                    backgroundColor: REMI.bg,
                     position: "absolute",
                     left: -14,
                     display: "flex",
                 } }), _jsx("div", { style: {
                     flex: 1,
-                    borderTop: `2px dashed ${LINE}`,
+                    borderTop: `2px dashed ${REMI.lineDashed}`,
                     marginLeft: 20,
                     marginRight: 20,
                     display: "flex",
@@ -154,7 +148,7 @@ function TicketPerforation() {
                     width: 28,
                     height: 28,
                     borderRadius: 14,
-                    backgroundColor: NOTCH,
+                    backgroundColor: REMI.bg,
                     position: "absolute",
                     right: -14,
                     display: "flex",
@@ -177,9 +171,9 @@ export function FlightCard(data) {
             height: "100%",
             display: "flex",
             flexDirection: "column",
-            backgroundColor: BG,
-            color: INK,
-            fontFamily: "Inter",
+            backgroundColor: REMI.bg,
+            color: REMI.foreground,
+            fontFamily: REMI.fontFamily,
             padding: "40px 44px 48px",
         }, children: [_jsxs("div", { style: {
                     position: "relative",
@@ -198,18 +192,18 @@ export function FlightCard(data) {
                             alignItems: "flex-end",
                         }, children: [_jsx("div", { style: {
                                     fontSize: 20,
-                                    color: LABEL,
+                                    color: REMI.mutedForeground,
                                     display: "flex",
                                 }, children: "total" }), _jsx("div", { style: {
                                     fontSize: 40,
                                     fontWeight: 700,
-                                    color: INK,
+                                    color: REMI.primary,
                                     display: "flex",
                                 }, children: data.price })] }), _jsx("div", { style: {
                             fontSize: 20,
-                            fontWeight: 600,
-                            color: PURPLE,
-                            letterSpacing: 1,
+                            fontWeight: 500,
+                            color: REMI.eyebrow,
+                            letterSpacing: 2.8,
                             textTransform: "uppercase",
                             marginBottom: 28,
                             display: "flex",
@@ -222,30 +216,35 @@ export function FlightCard(data) {
                         }, children: [_jsxs("div", { style: { display: "flex", flexDirection: "column" }, children: [_jsx("div", { style: {
                                             fontSize: 64,
                                             fontWeight: 700,
-                                            letterSpacing: -2,
+                                            letterSpacing: -2.2,
+                                            color: REMI.foreground,
                                             display: "flex",
                                         }, children: origin }), originCity ? (_jsx("div", { style: {
                                             fontSize: 30,
-                                            fontWeight: 700,
+                                            fontWeight: 600,
+                                            color: REMI.foreground,
                                             marginTop: 6,
                                             display: "flex",
                                         }, children: originCity })) : null] }), _jsxs("div", { style: { display: "flex", flexDirection: "column" }, children: [_jsx("div", { style: {
                                             fontSize: 64,
                                             fontWeight: 700,
-                                            letterSpacing: -2,
+                                            letterSpacing: -2.2,
+                                            color: REMI.foreground,
                                             display: "flex",
                                         }, children: destination }), destCity ? (_jsx("div", { style: {
                                             fontSize: 30,
-                                            fontWeight: 700,
+                                            fontWeight: 600,
+                                            color: REMI.foreground,
                                             marginTop: 6,
                                             display: "flex",
                                         }, children: destCity })) : null] })] }), _jsx("div", { style: { marginTop: 8, display: "flex" }, children: _jsx(RouteArc, {}) })] }), _jsxs("div", { style: {
                     display: "flex",
                     flexDirection: "column",
-                    backgroundColor: CARD,
-                    borderRadius: 32,
+                    backgroundColor: REMI.card,
+                    border: `1px solid ${REMI.border}`,
+                    borderRadius: REMI.radiusCard,
                     padding: "40px 36px 44px",
-                    marginBottom: 24,
+                    marginBottom: 20,
                 }, children: [_jsx("div", { style: {
                             display: "flex",
                             justifyContent: "center",
@@ -255,18 +254,20 @@ export function FlightCard(data) {
                         }, children: data.logoUrl ? (_jsx("img", { src: data.logoUrl, width: 200, height: 48, style: { objectFit: "contain", display: "flex" } })) : (_jsx("div", { style: {
                                 fontSize: 32,
                                 fontWeight: 700,
-                                color: INK,
+                                color: REMI.primary,
                                 display: "flex",
                             }, children: data.airline })) }), _jsxs("div", { style: { display: "flex", width: "100%" }, children: [_jsx(InfoCell, { label: "Flight date", value: flightDate || "--" }), _jsx(InfoCell, { label: "Zone", value: zone }), _jsx(InfoCell, { label: "Flight number", value: flightNo })] })] }), _jsxs("div", { style: {
                     display: "flex",
                     flexDirection: "column",
-                    backgroundColor: CARD,
-                    borderRadius: 32,
+                    backgroundColor: REMI.card,
+                    border: `1px solid ${REMI.border}`,
+                    borderRadius: REMI.radiusCard,
                     padding: "40px 36px 44px",
                     flex: 1,
                 }, children: [_jsxs("div", { style: { display: "flex", width: "100%" }, children: [_jsx(InfoCell, { label: "Boarding time", value: boardingTime || "--" }), _jsx(InfoCell, { label: "Seat", value: seat }), _jsx(InfoCell, { label: "Class", value: cabin })] }), _jsx("div", { style: { marginTop: 32, marginBottom: 28, display: "flex" }, children: _jsx(TicketPerforation, {}) }), _jsx("div", { style: {
                             fontSize: 30,
-                            fontWeight: 600,
+                            fontWeight: 500,
+                            color: REMI.foreground,
                             textAlign: "center",
                             marginBottom: 28,
                             display: "flex",
@@ -278,12 +279,12 @@ export function FlightCard(data) {
                             marginTop: 32,
                         }, children: [_jsxs("div", { style: {
                                     fontSize: 24,
-                                    color: LABEL,
+                                    color: REMI.mutedForeground,
                                     display: "flex",
                                 }, children: [origin, " to ", destination] }), _jsx("div", { style: {
                                     fontSize: 26,
                                     fontWeight: 700,
-                                    color: INK,
+                                    color: REMI.primary,
                                     display: "flex",
                                 }, children: "remi" })] })] })] }));
 }

@@ -9,7 +9,7 @@ import { FlightCard, type FlightCardInput } from "./templates/FlightCard.js";
 export type { FlightCardInput };
 
 /** Bump when card layout changes — busts in-process cache and shows in deploy logs. */
-export const FLIGHT_CARD_TEMPLATE_VERSION = "v3-boarding-pass";
+export const FLIGHT_CARD_TEMPLATE_VERSION = "v4-remi-one-pager";
 
 export interface FlightCardImage {
   buffer: Buffer;

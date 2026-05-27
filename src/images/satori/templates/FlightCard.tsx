@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import { REMI } from "../remiTheme.js";
 
 export interface FlightCardInput {
   airline: string;
@@ -20,14 +21,6 @@ export interface FlightCardInput {
   seat?: string;
   optionLabel?: string;
 }
-
-const BG = "#F2F2F7";
-const CARD = "#FFFFFF";
-const INK = "#111111";
-const LABEL = "#9CA3AF";
-const PURPLE = "#7C5CFF";
-const LINE = "#D1D5DB";
-const NOTCH = "#F2F2F7";
 
 const AIRPORT_CITIES: Record<string, string> = {
   ATL: "Atlanta",
@@ -106,7 +99,7 @@ function MapPattern(): ReactElement {
             cx={40 + col * 72}
             cy={24 + row * 44}
             r={2}
-            fill="#E5E7EB"
+            fill={REMI.tile}
           />,
         );
       }
@@ -122,7 +115,7 @@ function MapPattern(): ReactElement {
       {dots}
       <path
         d="M120 200 Q492 80 864 200"
-        stroke="#E5E7EB"
+        stroke={REMI.line}
         strokeWidth={1.5}
         fill="none"
       />
@@ -135,16 +128,16 @@ function RouteArc(): ReactElement {
     <svg width={520} height={100} viewBox="0 0 520 100" style={{ display: "flex" }}>
       <path
         d="M24 72 Q260 8 496 72"
-        stroke={LINE}
-        strokeWidth={3}
+        stroke={REMI.lineDashed}
+        strokeWidth={2}
         strokeDasharray="10 10"
         fill="none"
       />
-      <circle cx={24} cy={72} r={10} fill={PURPLE} />
-      <circle cx={496} cy={72} r={10} fill={PURPLE} />
+      <circle cx={24} cy={72} r={9} fill={REMI.primary} />
+      <circle cx={496} cy={72} r={9} fill={REMI.primary} />
       <path
         d="M248 28 L268 38 L258 48 L278 38 Z"
-        fill={PURPLE}
+        fill={REMI.primary}
         transform="rotate(12 258 38)"
       />
     </svg>
@@ -166,7 +159,7 @@ function Barcode({ seed }: { seed: string }): ReactElement {
         style={{
           width: wide ? 5 : 3,
           height: 108,
-          backgroundColor: INK,
+          backgroundColor: REMI.primary,
           marginRight: 2,
           display: "flex",
         }}
@@ -211,7 +204,7 @@ function InfoCell({
         style={{
           fontSize: 22,
           fontWeight: 400,
-          color: LABEL,
+          color: REMI.mutedForeground,
           display: "flex",
         }}
       >
@@ -221,7 +214,7 @@ function InfoCell({
         style={{
           fontSize: 34,
           fontWeight: 700,
-          color: INK,
+          color: REMI.primary,
           marginTop: 10,
           display: "flex",
         }}
@@ -248,7 +241,7 @@ function TicketPerforation(): ReactElement {
           width: 28,
           height: 28,
           borderRadius: 14,
-          backgroundColor: NOTCH,
+          backgroundColor: REMI.bg,
           position: "absolute",
           left: -14,
           display: "flex",
@@ -257,7 +250,7 @@ function TicketPerforation(): ReactElement {
       <div
         style={{
           flex: 1,
-          borderTop: `2px dashed ${LINE}`,
+          borderTop: `2px dashed ${REMI.lineDashed}`,
           marginLeft: 20,
           marginRight: 20,
           display: "flex",
@@ -268,7 +261,7 @@ function TicketPerforation(): ReactElement {
           width: 28,
           height: 28,
           borderRadius: 14,
-          backgroundColor: NOTCH,
+          backgroundColor: REMI.bg,
           position: "absolute",
           right: -14,
           display: "flex",
@@ -298,9 +291,9 @@ export function FlightCard(data: FlightCardInput): ReactElement {
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        backgroundColor: BG,
-        color: INK,
-        fontFamily: "Inter",
+        backgroundColor: REMI.bg,
+        color: REMI.foreground,
+        fontFamily: REMI.fontFamily,
         padding: "40px 44px 48px",
       }}
     >
@@ -330,7 +323,7 @@ export function FlightCard(data: FlightCardInput): ReactElement {
           <div
             style={{
               fontSize: 20,
-              color: LABEL,
+              color: REMI.mutedForeground,
               display: "flex",
             }}
           >
@@ -340,7 +333,7 @@ export function FlightCard(data: FlightCardInput): ReactElement {
             style={{
               fontSize: 40,
               fontWeight: 700,
-              color: INK,
+              color: REMI.primary,
               display: "flex",
             }}
           >
@@ -351,9 +344,9 @@ export function FlightCard(data: FlightCardInput): ReactElement {
         <div
           style={{
             fontSize: 20,
-            fontWeight: 600,
-            color: PURPLE,
-            letterSpacing: 1,
+            fontWeight: 500,
+            color: REMI.eyebrow,
+            letterSpacing: 2.8,
             textTransform: "uppercase",
             marginBottom: 28,
             display: "flex",
@@ -376,7 +369,8 @@ export function FlightCard(data: FlightCardInput): ReactElement {
               style={{
                 fontSize: 64,
                 fontWeight: 700,
-                letterSpacing: -2,
+                letterSpacing: -2.2,
+                color: REMI.foreground,
                 display: "flex",
               }}
             >
@@ -386,7 +380,8 @@ export function FlightCard(data: FlightCardInput): ReactElement {
               <div
                 style={{
                   fontSize: 30,
-                  fontWeight: 700,
+                  fontWeight: 600,
+                  color: REMI.foreground,
                   marginTop: 6,
                   display: "flex",
                 }}
@@ -401,7 +396,8 @@ export function FlightCard(data: FlightCardInput): ReactElement {
               style={{
                 fontSize: 64,
                 fontWeight: 700,
-                letterSpacing: -2,
+                letterSpacing: -2.2,
+                color: REMI.foreground,
                 display: "flex",
               }}
             >
@@ -411,7 +407,8 @@ export function FlightCard(data: FlightCardInput): ReactElement {
               <div
                 style={{
                   fontSize: 30,
-                  fontWeight: 700,
+                  fontWeight: 600,
+                  color: REMI.foreground,
                   marginTop: 6,
                   display: "flex",
                 }}
@@ -431,10 +428,11 @@ export function FlightCard(data: FlightCardInput): ReactElement {
         style={{
           display: "flex",
           flexDirection: "column",
-          backgroundColor: CARD,
-          borderRadius: 32,
+          backgroundColor: REMI.card,
+          border: `1px solid ${REMI.border}`,
+          borderRadius: REMI.radiusCard,
           padding: "40px 36px 44px",
-          marginBottom: 24,
+          marginBottom: 20,
         }}
       >
         <div
@@ -458,7 +456,7 @@ export function FlightCard(data: FlightCardInput): ReactElement {
               style={{
                 fontSize: 32,
                 fontWeight: 700,
-                color: INK,
+                color: REMI.primary,
                 display: "flex",
               }}
             >
@@ -478,8 +476,9 @@ export function FlightCard(data: FlightCardInput): ReactElement {
         style={{
           display: "flex",
           flexDirection: "column",
-          backgroundColor: CARD,
-          borderRadius: 32,
+          backgroundColor: REMI.card,
+          border: `1px solid ${REMI.border}`,
+          borderRadius: REMI.radiusCard,
           padding: "40px 36px 44px",
           flex: 1,
         }}
@@ -497,7 +496,8 @@ export function FlightCard(data: FlightCardInput): ReactElement {
         <div
           style={{
             fontSize: 30,
-            fontWeight: 600,
+            fontWeight: 500,
+            color: REMI.foreground,
             textAlign: "center",
             marginBottom: 28,
             display: "flex",
@@ -520,7 +520,7 @@ export function FlightCard(data: FlightCardInput): ReactElement {
           <div
             style={{
               fontSize: 24,
-              color: LABEL,
+              color: REMI.mutedForeground,
               display: "flex",
             }}
           >
@@ -530,7 +530,7 @@ export function FlightCard(data: FlightCardInput): ReactElement {
             style={{
               fontSize: 26,
               fontWeight: 700,
-              color: INK,
+              color: REMI.primary,
               display: "flex",
             }}
           >
