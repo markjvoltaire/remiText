@@ -44,7 +44,7 @@ export function restaurantsToSMS(
     const venue = venues[0]!;
     const times = formatCuratedTimesPhrase(venue.slots, MAX_CURATED_TIMES, meta.mealPeriod);
     const lines = [`${venue.name} has good availability ${when}.`];
-    if (times) lines.push(`best openings are ${times}.`);
+    if (times) lines.push(`${times} work.`);
     lines.push('want me to lock one in?');
     return lines.join('\n');
   }
@@ -68,7 +68,7 @@ export function restaurantDetailToSMS(
 
   const times = formatCuratedTimesPhrase(venue.slots, MAX_CURATED_TIMES, mealPeriod);
   const lines = [`${venue.name} looks good.`];
-  if (times) lines.push(`best times are ${times}.`);
+  if (times) lines.push(`${times} work.`);
   lines.push('want me to lock one in?');
   return lines.join('\n');
 }
@@ -78,11 +78,15 @@ export function formatRestaurantBookingConfirmPromptSMS(params: {
   date: string;
   time: string;
   partySize: number;
+  address?: string;
 }): string {
   const day = formatBookingDate(params.date);
   const time = compactTime(params.time);
   const party = params.partySize === 1 ? 'just you' : `for ${params.partySize}`;
-  return `just to confirm — ${params.venueName}, ${time} ${day}, ${party}?\n\nreply yes and i'll lock it in.`;
+  const lines = [`just to confirm — ${params.venueName}, ${time} ${day}, ${party}?`];
+  if (params.address?.trim()) lines.push(params.address.trim());
+  lines.push('', "reply yes and i'll lock it in.");
+  return lines.join('\n');
 }
 
 export function formatReservationConfirmationSMS(params: {
@@ -92,10 +96,13 @@ export function formatReservationConfirmationSMS(params: {
   partySize: number;
   confirmation?: string;
   seatingType?: string;
+  address?: string;
 }): string {
   const day = formatHumanDate(params.date);
   const time = compactTime(params.time);
-  return `done. you're in at ${params.venueName} — ${time} ${day}.`;
+  const lines = [`done. you're in at ${params.venueName} — ${time} ${day}.`];
+  if (params.address?.trim()) lines.push(params.address.trim());
+  return lines.join('\n');
 }
 
 export function reservationsListToSMS(
