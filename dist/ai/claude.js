@@ -155,10 +155,10 @@ Local recommendations (what's trending) — vibe required before searching:
 - For get_restaurant_availability, always use a venue_id from the latest search_restaurants (or pending restaurant list in context). Never invent venue IDs.
 
 Output formatting:
-- When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat, paraphrase, or omit options (count must match the number of image cards). Append one follow-up line: "Which one?" or "Want me to book one?"
-- When search_restaurants returns results with a "formatted" field and no "error", use "formatted" as your reply verbatim. Never say search failed when formatted is present. Append one follow-up line: "Which one?" or "Want times for one?"
+- When search_flights returns results, use the "formatted" field as your reply verbatim — do not reformat, paraphrase, or omit options (count must match the number of image cards). If formatted has no closing question, add one short line: "Which flight works?" or "Want me to hold one?"
+- When search_restaurants returns results with a "formatted" field and no "error", use "formatted" as your reply verbatim (it already ends with a short CTA). Never say search failed when formatted is present. Do not add a second question line.
 - When search_restaurants returns { error: true, message }, relay the message to the user briefly; do not invent a generic failure if a specific message is provided.
-- When get_restaurant_availability returns results, use the "formatted" field as your reply verbatim. Append: "Reply with a time to book (e.g. 7:00 PM)."
+- When get_restaurant_availability returns results, use the "formatted" field as your reply verbatim (includes booking CTA). Do not add another closing line.
 - When book_restaurant_table returns successfully, use the "formatted" field as your reply verbatim.
 - When list_restaurant_reservations returns successfully, use the "formatted" field as your reply verbatim.
 - When cancel_restaurant_reservation returns successfully, use the "formatted" field as your reply verbatim.
@@ -695,7 +695,7 @@ async function executeTool(toolName, input, user, ctx) {
             const surfaced = venues;
             let formatted = restaurantsToSMS(surfaced, { location, date, partySize });
             if (queryRelaxed && surfaced.length > 0) {
-                formatted = `No "${query}" matches — open tables nearby:\n\n${formatted}`;
+                formatted = `No exact match for "${query}" — here's what's open:\n\n${formatted}`;
             }
             const saved = await setLastRestaurantSearch(user.id, {
                 venues: summarizeVenuesForContext(surfaced),
@@ -962,7 +962,7 @@ async function executeTool(toolName, input, user, ctx) {
                 return JSON.stringify({
                     error: true,
                     ambiguous: true,
-                    formatted: `${formatted}\n\nWhich one should I cancel? Reply with the number or restaurant name.`,
+                    formatted: `${formatted}\n\nWhich should I cancel? Reply with the name.`,
                     options: pick.options,
                 });
             }

@@ -1,20 +1,11 @@
 import { computeAllInPrice, formatMoneyFromCents } from './pricing.js';
+import { formatHumanDate } from './smsFormat.js';
 function formatTime(hhmm) {
     const [hourStr, min] = hhmm.split(':');
     const hour = parseInt(hourStr, 10);
     const suffix = hour < 12 ? 'a' : 'p';
     const h12 = hour % 12 || 12;
     return `${h12}:${min}${suffix}`;
-}
-function formatDate(dateStr) {
-    // Use noon UTC to avoid date shifting across timezones
-    const date = new Date(`${dateStr}T12:00:00Z`);
-    return date.toLocaleDateString('en-US', {
-        weekday: 'short',
-        month: 'short',
-        day: 'numeric',
-        timeZone: 'UTC',
-    });
 }
 function extractHHMM(isoDatetime) {
     // "2026-05-08T05:25:00" → "05:25"
@@ -28,8 +19,8 @@ export function formatFlightOptionsSMS(route, options) {
     });
     const arrow = route.return_date ? '↔' : '→';
     const datePart = route.return_date
-        ? `${formatDate(route.date)} – ${formatDate(route.return_date)}`
-        : formatDate(route.date);
+        ? `${formatHumanDate(route.date)} – ${formatHumanDate(route.return_date)}`
+        : formatHumanDate(route.date);
     const header = `${route.from} ${arrow} ${route.to} · ${datePart}`;
     const blocks = sorted.map((f) => {
         const out = `Depart: ${formatTime(f.departure_time)} → ${formatTime(f.arrival_time)}`;
@@ -47,8 +38,8 @@ export function formatFlightOptionsSMS(route, options) {
 export function formatHeldOrderConfirmationSMS(summary) {
     const arrow = summary.return_date ? '↔' : '→';
     const datePart = summary.return_date
-        ? `${formatDate(summary.depart_date)} – ${formatDate(summary.return_date)}`
-        : formatDate(summary.depart_date);
+        ? `${formatHumanDate(summary.depart_date)} – ${formatHumanDate(summary.return_date)}`
+        : formatHumanDate(summary.depart_date);
     const out = `Depart: ${formatTime(summary.depart_time)} → ${formatTime(summary.arrive_time)}`;
     const ret = summary.return_date && summary.return_depart_time && summary.return_arrive_time
         ? `Return: ${formatTime(summary.return_depart_time)} → ${formatTime(summary.return_arrive_time)}`

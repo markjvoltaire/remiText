@@ -1,5 +1,6 @@
 import type { FlightOffer } from '../types.js';
 import { computeAllInPrice, formatMoneyFromCents } from './pricing.js';
+import { formatHumanDate } from './smsFormat.js';
 
 interface Flight {
   airline: string;
@@ -19,17 +20,6 @@ function formatTime(hhmm: string): string {
   return `${h12}:${min}${suffix}`;
 }
 
-function formatDate(dateStr: string): string {
-  // Use noon UTC to avoid date shifting across timezones
-  const date = new Date(`${dateStr}T12:00:00Z`);
-  return date.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-}
-
 function extractHHMM(isoDatetime: string): string {
   // "2026-05-08T05:25:00" → "05:25"
   return isoDatetime.split('T')[1]?.slice(0, 5) ?? '00:00';
@@ -46,8 +36,8 @@ export function formatFlightOptionsSMS(
   });
   const arrow = route.return_date ? '↔' : '→';
   const datePart = route.return_date
-    ? `${formatDate(route.date)} – ${formatDate(route.return_date)}`
-    : formatDate(route.date);
+    ? `${formatHumanDate(route.date)} – ${formatHumanDate(route.return_date)}`
+    : formatHumanDate(route.date);
   const header = `${route.from} ${arrow} ${route.to} · ${datePart}`;
 
   const blocks = sorted.map((f) => {
@@ -93,8 +83,8 @@ export interface HeldOrderSummary {
 export function formatHeldOrderConfirmationSMS(summary: HeldOrderSummary): string {
   const arrow = summary.return_date ? '↔' : '→';
   const datePart = summary.return_date
-    ? `${formatDate(summary.depart_date)} – ${formatDate(summary.return_date)}`
-    : formatDate(summary.depart_date);
+    ? `${formatHumanDate(summary.depart_date)} – ${formatHumanDate(summary.return_date)}`
+    : formatHumanDate(summary.depart_date);
 
   const out = `Depart: ${formatTime(summary.depart_time)} → ${formatTime(summary.arrive_time)}`;
   const ret = summary.return_date && summary.return_depart_time && summary.return_arrive_time
