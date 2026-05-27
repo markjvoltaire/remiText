@@ -55,8 +55,7 @@ export function formatRestaurantBookingConfirmPromptSMS(params) {
 export function formatReservationConfirmationSMS(params) {
     const day = formatHumanDate(params.date);
     const time = compactTime(params.time);
-    const conf = params.confirmation ? `\nconf ${params.confirmation}` : '';
-    return `done. you're in at ${params.venueName} — ${time} ${day}.${conf}`;
+    return `done. you're in at ${params.venueName} — ${time} ${day}.`;
 }
 export function reservationsListToSMS(items) {
     if (items.length === 0) {
