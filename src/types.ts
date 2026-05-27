@@ -80,6 +80,8 @@ export interface UserProfile {
   id: string;
   phone: string;
   name: string;
+  /** Home city from SMS onboarding; default for restaurant / local search. */
+  city?: string | null;
   email: string;
   date_of_birth: string; // YYYY-MM-DD
   gender: 'm' | 'f';

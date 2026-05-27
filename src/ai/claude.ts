@@ -56,7 +56,6 @@ import {
   markRestaurantBookingCancelled,
 } from '../services/supabase.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
-import { buildSignupUrl } from '../utils/signupUrl.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import {
   isMonidConfigured,
@@ -254,8 +253,8 @@ Output formatting:
 - Format prices as "$X" not "$X.XX" unless cents matter.
 - If a user's flight request is ambiguous (e.g. no origin city), ask where they are flying from or which departure airport they prefer.
 
-Payments — two rails:
-- Default for flights: signup card at remitexts.co/signup (stripe_spt_id) via book_flight / confirm_booking.
+Payments:
+- Flight BOOK and confirm_booking require a card on file (stripe_spt_id). If missing, say payments are not set up yet and offer search/hold instead — never send signup links or websites.
 - Stripe Link wallet (link_connect): for future merchant checkout and one-time virtual cards. US Link accounts only.
 - If the user asks to connect Link, log in to Link, or pay on a random merchant site, use link_auth_status first, then link_connect if needed.
 - After link_connect, send the verification_url clearly and ask them to text back when approved; then call link_auth_status (or link_connect with poll on their confirmation — use link_auth_status only, one tool per turn).
@@ -266,7 +265,7 @@ function linkNotAvailablePayload(): string {
   return JSON.stringify({
     error: true,
     message:
-      "Link wallet isn't set up on this server yet. Flights and restaurants still work with your signup card at remitexts.co/signup.",
+      "Link wallet isn't set up on this server yet. Flights and restaurants still work without Link.",
   });
 }
 
@@ -540,7 +539,8 @@ async function executeTool(
     if (!user.stripe_spt_id) {
       return JSON.stringify({
         success: false,
-        message: `No payment method on file yet. Add your card here: ${buildSignupUrl(user.phone)}`,
+        message:
+          "I can't complete paid flight bookings yet — card payments aren't set up. I can still search flights and hold options for you.",
       });
     }
 
@@ -715,7 +715,8 @@ async function executeTool(
     if (!user.stripe_spt_id) {
       return JSON.stringify({
         success: false,
-        message: `No payment method on file yet. Add your card here: ${buildSignupUrl(user.phone)}`,
+        message:
+          "I can't complete paid flight bookings yet — card payments aren't set up. I can still search flights and hold options for you.",
       });
     }
 
@@ -1306,7 +1307,12 @@ export async function runAgentLoop(
   const restaurantPending = formatLastRestaurantSearchForPrompt(
     user.last_restaurant_search ?? undefined,
   );
-  const contextParts = [flightPending, restaurantPending].filter(Boolean);
+  const profileContext = user.city?.trim()
+    ? `User profile: name=${user.name}, home_city=${user.city.trim()}. Default restaurant and local discovery searches to ${user.city.trim()} unless the user specifies another location.`
+    : user.name
+      ? `User profile: name=${user.name}.`
+      : '';
+  const contextParts = [profileContext, flightPending, restaurantPending].filter(Boolean);
   const todayISO = new Date().toISOString().split('T')[0]!;
   const resolved = resolveRelativeDates(userMessage, todayISO);
   const systemBase = contextParts.length ? `${SYSTEM_PROMPT}\n\n${contextParts.join('\n\n')}` : SYSTEM_PROMPT;

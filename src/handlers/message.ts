@@ -9,7 +9,11 @@ import {
 } from '../services/supabase.js';
 import { markRead, sendPhotoStack, resolveInboundReplyTarget, isReplyToOurMessage } from '../services/imessage.js';
 import { runAgentLoop, isAnthropicCapacityError } from '../ai/claude.js';
-import { buildSignupUrl } from '../utils/signupUrl.js';
+import {
+  advanceOnboarding,
+  getOnboardingSession,
+  startOnboarding,
+} from '../services/onboarding.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { stripMarkdown } from '../utils/stripMarkdown.js';
 import {
@@ -31,12 +35,11 @@ function extractText(content: unknown): string {
   return '';
 }
 
-function buildSignupInvite(phone: string): string {
-  const url = buildSignupUrl(phone);
+function welcomeMessage(name: string): string {
+  const first = name.trim().split(/\s+/)[0] || name;
   return (
-    `Hi! I'm Remi — your travel concierge on iMessage.\n\n` +
-    `Finish setup here (about 2 min):\n${url}\n\n` +
-    `Once you're done, text me where you'd like to go.`
+    `You're all set, ${first}! I'm Remi — your travel concierge.\n\n` +
+    `Text me where you'd like to go: flights, dinner, or what's trending near you.`
   );
 }
 
@@ -60,8 +63,20 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   const user = await getUserByPhone(contactKey);
 
   if (!user) {
-    const invite = buildSignupInvite(contactKey);
-    await message.reply(invite);
+    let session = await getOnboardingSession(contactKey);
+    if (!session) {
+      await startOnboarding(contactKey);
+      await message.reply("Hi! I'm Remi — your travel concierge.\n\nWhat's your name?");
+      return;
+    }
+
+    const result = await advanceOnboarding(session, text);
+    if (result.kind === 'prompt') {
+      await message.reply(result.message);
+      return;
+    }
+
+    await message.reply(welcomeMessage(result.user.name));
     return;
   }
 

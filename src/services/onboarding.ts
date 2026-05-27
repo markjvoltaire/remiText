@@ -1,7 +1,3 @@
-/**
- * @deprecated SMS onboarding moved to remi-one-pager (/signup).
- * New users receive a signup link from handleMessage instead.
- */
 import { createClient } from '@supabase/supabase-js';
 import type { UserProfile } from '../types.js';
 import { normalizeContactKey } from '../utils/contactId.js';
@@ -11,39 +7,15 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
-type OnboardingStep = 'name' | 'email' | 'dob' | 'title' | 'passport';
+type OnboardingStep = 'name' | 'city';
 
 export interface OnboardingSession {
   phone: string;
   step: OnboardingStep;
   name: string | null;
-  email: string | null;
-  date_of_birth: string | null; // YYYY-MM-DD
-  title: string | null;
-  gender: 'm' | 'f' | null;
-  passport_number: string | null;
+  city: string | null;
 }
 
-function deriveGender(title: string): 'm' | 'f' {
-  return title === 'Mr' ? 'm' : 'f';
-}
-
-function normalizeEmail(raw: string): string | null {
-  const s = raw.trim().toLowerCase();
-  if (!s) return null;
-  // Basic sanity check; keep it permissive for SMS input.
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) return null;
-  return s;
-}
-
-function normalizeDob(raw: string): string | null {
-  const s = raw.trim();
-  // Expect YYYY-MM-DD to avoid locale ambiguity.
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  return s;
-}
-
-/** Common SMS openers — not valid full names. */
 const GREETING_TOKENS = new Set([
   'hi',
   'hey',
@@ -54,10 +26,6 @@ const GREETING_TOKENS = new Set([
   'howdy',
   'heya',
   'hola',
-  'good',
-  'morning',
-  'afternoon',
-  'evening',
   'thanks',
   'thank',
   'you',
@@ -68,73 +36,54 @@ const GREETING_TOKENS = new Set([
   'test',
 ]);
 
-function normalizeFullName(raw: string): string | null {
+function normalizeName(raw: string): string | null {
   const name = raw.replace(/\s+/g, ' ').trim();
-  if (name.length < 3) return null;
-
-  const words = name.split(' ').filter(Boolean);
-  if (words.length < 2) return null;
-
-  for (const word of words) {
-    if (word.length < 2) return null;
-    const bare = word.replace(/[.'-]/g, '');
-    if (!bare || !/^[\p{L}\p{M}]+$/u.test(bare)) return null;
-    if (GREETING_TOKENS.has(word.toLowerCase())) return null;
-  }
-
-  const joined = words.join(' ').toLowerCase();
-  if (GREETING_TOKENS.has(joined)) return null;
-
-  return words.join(' ');
+  if (name.length < 2) return null;
+  if (GREETING_TOKENS.has(name.toLowerCase())) return null;
+  return name;
 }
 
-function normalizeTitle(raw: string): 'Mr' | 'Ms' | 'Mrs' | 'Miss' | null {
-  const s = raw.trim().replace(/\.$/, '');
-  const map: Record<string, 'Mr' | 'Ms' | 'Mrs' | 'Miss'> = {
-    mr: 'Mr',
-    mrs: 'Mrs',
-    ms: 'Ms',
-    miss: 'Miss',
-  };
-  return map[s.toLowerCase()] ?? null;
+function normalizeCity(raw: string): string | null {
+  const city = raw.replace(/\s+/g, ' ').trim();
+  if (city.length < 2) return null;
+  if (GREETING_TOKENS.has(city.toLowerCase())) return null;
+  return city;
+}
+
+function placeholderEmail(phone: string): string {
+  const digits = phone.replace(/\D/g, '') || 'user';
+  return `text+${digits}@remi.local`;
 }
 
 export async function getOnboardingSession(phone: string): Promise<OnboardingSession | null> {
   const { data, error } = await supabase
     .from('onboarding_sessions')
-    .select('*')
+    .select('phone, step, name, city')
     .eq('phone', phone)
     .maybeSingle();
   if (error || !data) return null;
 
+  const step = data.step === 'city' ? 'city' : 'name';
   return {
     phone: data.phone,
-    step: data.step,
+    step,
     name: data.name ?? null,
-    email: data.email ?? null,
-    date_of_birth: data.date_of_birth ?? null,
-    title: data.title ?? null,
-    gender: (data.gender as 'm' | 'f' | null) ?? null,
-    passport_number: data.passport_number ?? null,
+    city: data.city ?? null,
   };
 }
 
 export async function startOnboarding(phone: string): Promise<OnboardingSession> {
   const { data, error } = await supabase
     .from('onboarding_sessions')
-    .upsert({ phone, step: 'name' }, { onConflict: 'phone' })
-    .select('*')
+    .upsert({ phone, step: 'name', name: null, city: null }, { onConflict: 'phone' })
+    .select('phone, step, name, city')
     .single();
   if (error) throw error;
   return {
     phone: data.phone,
-    step: data.step,
+    step: data.step === 'city' ? 'city' : 'name',
     name: data.name ?? null,
-    email: data.email ?? null,
-    date_of_birth: data.date_of_birth ?? null,
-    title: data.title ?? null,
-    gender: (data.gender as 'm' | 'f' | null) ?? null,
-    passport_number: data.passport_number ?? null,
+    city: data.city ?? null,
   };
 }
 
@@ -147,88 +96,49 @@ export async function advanceOnboarding(
 > {
   const text = inboundText.trim();
 
-  // Recover sessions that advanced on a greeting before name validation was stricter.
-  if (session.step !== 'name' && session.name && !normalizeFullName(session.name)) {
-    await supabase
-      .from('onboarding_sessions')
-      .update({ name: null, step: 'name' })
-      .eq('phone', session.phone);
-    return {
-      kind: 'prompt',
-      message:
-        'Please send your first and last name (for example: Jane Smith).',
-    };
-  }
-
   if (session.step === 'name') {
-    const name = normalizeFullName(text);
+    const name = normalizeName(text);
     if (!name) {
       return {
         kind: 'prompt',
-        message:
-          'Please send your first and last name (for example: Jane Smith).',
+        message: "What's your name?",
       };
     }
-    await supabase.from('onboarding_sessions').update({ name, step: 'email' }).eq('phone', session.phone);
-    return { kind: 'prompt', message: 'What’s your email?' };
+    await supabase.from('onboarding_sessions').update({ name, step: 'city' }).eq('phone', session.phone);
+    return { kind: 'prompt', message: 'What city are you in?' };
   }
 
-  if (session.step === 'email') {
-    const email = normalizeEmail(text);
-    if (!email) return { kind: 'prompt', message: 'That email doesn’t look right. What’s your email?' };
-    await supabase.from('onboarding_sessions').update({ email, step: 'dob' }).eq('phone', session.phone);
-    return { kind: 'prompt', message: 'What’s your date of birth? (YYYY-MM-DD)' };
+  const city = normalizeCity(text);
+  if (!city) {
+    return { kind: 'prompt', message: 'What city are you in? (e.g. New York, Miami)' };
   }
 
-  if (session.step === 'dob') {
-    const dob = normalizeDob(text);
-    if (!dob) return { kind: 'prompt', message: 'Please send your date of birth as YYYY-MM-DD.' };
-    await supabase.from('onboarding_sessions').update({ date_of_birth: dob, step: 'title' }).eq('phone', session.phone);
-    return { kind: 'prompt', message: 'What title should I use? (Mr, Ms, Mrs, or Miss)' };
-  }
-
-  if (session.step === 'title') {
-    const title = normalizeTitle(text);
-    if (!title) return { kind: 'prompt', message: 'Please reply with Mr, Ms, Mrs, or Miss.' };
-    const gender = deriveGender(title);
-    await supabase.from('onboarding_sessions').update({ title, gender, step: 'passport' }).eq('phone', session.phone);
-    return {
-      kind: 'prompt',
-      message: 'Passport number? Reply “skip” if you don’t have it handy (needed for international flights).',
-    };
-  }
-
-  // passport step
-  const passport = /^skip$/i.test(text) ? null : text.replace(/\s+/g, '').toUpperCase();
-  await supabase
-    .from('onboarding_sessions')
-    .update({ passport_number: passport })
-    .eq('phone', session.phone);
-
-  // Create user (no payment info)
   const latest = await getOnboardingSession(session.phone);
-  if (!latest?.name || !latest.email || !latest.date_of_birth || !latest.gender) {
-    return { kind: 'prompt', message: 'Something went wrong—can you start again with your full name?' };
+  if (!latest?.name) {
+    return { kind: 'prompt', message: "What's your name?" };
   }
+
+  await supabase.from('onboarding_sessions').update({ city }).eq('phone', session.phone);
 
   const canonicalPhone = normalizeContactKey(latest.phone);
+  const profile = {
+    phone: canonicalPhone,
+    name: latest.name,
+    city,
+    email: placeholderEmail(canonicalPhone),
+    date_of_birth: '1990-01-01',
+    gender: 'm' as const,
+    passport_number: null,
+    stripe_customer_id: null,
+    stripe_spt_id: null,
+  };
 
   const { data: inserted, error: insertError } = await supabase
     .from('users')
-    .insert({
-      phone: canonicalPhone,
-      name: latest.name,
-      email: latest.email,
-      date_of_birth: latest.date_of_birth,
-      gender: latest.gender,
-      passport_number: latest.passport_number,
-      stripe_customer_id: null,
-      stripe_spt_id: null,
-    })
+    .insert(profile)
     .select('*')
     .single();
 
-  // If user already exists, fetch and proceed
   if (insertError) {
     const { data: existing } = await supabase
       .from('users')
@@ -243,4 +153,3 @@ export async function advanceOnboarding(
   await supabase.from('onboarding_sessions').delete().eq('phone', latest.phone);
   return { kind: 'completed', user: inserted as UserProfile };
 }
-
