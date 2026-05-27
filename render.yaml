@@ -2,6 +2,9 @@ services:
   - type: worker
     name: remiText
     runtime: node
+    repo: https://github.com/markjvoltaire/remiText
+    branch: main
+    autoDeployTrigger: commit
     buildCommand: npm install && npm run build
     startCommand: npm start
     healthCheckPath: /
