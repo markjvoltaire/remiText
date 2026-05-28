@@ -10,6 +10,28 @@ export async function assertSeenMessagesTableReady() {
     throw new Error(`[supabase] Table seen_messages is missing or not exposed to the API (${error.message}). ` +
         `Apply supabase/migrations/20250511000000_create_seen_messages.sql in the project that matches SUPABASE_URL.`);
 }
+/** Atomically grab or renew the single-worker lease. True when this holder owns it. */
+export async function acquireWorkerLease(id, holder, ttlSeconds) {
+    const { data, error } = await supabase.rpc('acquire_worker_lease', {
+        p_id: id,
+        p_holder: holder,
+        p_ttl_seconds: ttlSeconds,
+    });
+    if (error) {
+        throw new Error(`acquire_worker_lease failed: ${error.message}`);
+    }
+    return data === true;
+}
+/** Expire the lease (only if we hold it) so the next worker can take over now. */
+export async function releaseWorkerLease(id, holder) {
+    const { error } = await supabase.rpc('release_worker_lease', {
+        p_id: id,
+        p_holder: holder,
+    });
+    if (error) {
+        console.warn(`[lease] release failed id=${id}:`, error.message);
+    }
+}
 export async function claimMessage(id) {
     const { error } = await supabase.from('seen_messages').insert({ id });
     if (!error)

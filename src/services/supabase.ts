@@ -28,6 +28,34 @@ export async function assertSeenMessagesTableReady(): Promise<void> {
   );
 }
 
+/** Atomically grab or renew the single-worker lease. True when this holder owns it. */
+export async function acquireWorkerLease(
+  id: string,
+  holder: string,
+  ttlSeconds: number,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc('acquire_worker_lease', {
+    p_id: id,
+    p_holder: holder,
+    p_ttl_seconds: ttlSeconds,
+  });
+  if (error) {
+    throw new Error(`acquire_worker_lease failed: ${error.message}`);
+  }
+  return data === true;
+}
+
+/** Expire the lease (only if we hold it) so the next worker can take over now. */
+export async function releaseWorkerLease(id: string, holder: string): Promise<void> {
+  const { error } = await supabase.rpc('release_worker_lease', {
+    p_id: id,
+    p_holder: holder,
+  });
+  if (error) {
+    console.warn(`[lease] release failed id=${id}:`, error.message);
+  }
+}
+
 export async function claimMessage(id: string): Promise<boolean> {
   const { error } = await supabase.from('seen_messages').insert({ id });
   if (!error) return true;

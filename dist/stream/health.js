@@ -10,6 +10,11 @@ let snapshot = {
 };
 /** Last user message across sessions (for "first message after idle" logs). */
 let lastInboundBeforeCurrentSession = null;
+/** True while this instance is a standby waiting for the single-worker lease. */
+let waitingForLease = false;
+export function setWaitingForLease(value) {
+    waitingForLease = value;
+}
 export function getStreamHealthSnapshot() {
     return { ...snapshot };
 }
@@ -88,6 +93,11 @@ export function isStreamRefreshDue() {
 export function getHealthResponse() {
     const now = Date.now();
     const reconnectingFor = snapshot.lastReconnectAt ? now - snapshot.lastReconnectAt : 0;
+    // Standby instance intentionally holds no Spectrum connection while it waits
+    // for the lease — keep it healthy so Render does not cycle it.
+    if (waitingForLease) {
+        return { statusCode: 200, body: 'standby (waiting for worker lease)' };
+    }
     if (snapshot.state === 'connected') {
         return { statusCode: 200, body: 'ok' };
     }

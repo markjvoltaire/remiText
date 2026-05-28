@@ -20,6 +20,13 @@ services:
       # Proactive reconnect every 6h even when active (avoids silent stale gRPC).
       - key: STREAM_REFRESH_MS
         value: "21600000"
+      # Single-instance lease (Supabase): guarantees ONE Spectrum consumer per
+      # PROJECT_ID. A second worker (stray local `npm start`, overlapping deploy)
+      # stands by without connecting instead of tripping Spectrum's 429 limit.
+      # Requires migration 20250528120000_create_worker_lease.sql. Set to "0" to
+      # disable. TTL/heartbeat tunables: WORKER_LEASE_TTL_MS, WORKER_LEASE_HEARTBEAT_MS.
+      - key: WORKER_LEASE_ENABLED
+        value: "1"
       - key: PROJECT_ID
         sync: false
       - key: PROJECT_SECRET
