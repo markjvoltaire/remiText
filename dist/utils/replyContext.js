@@ -120,24 +120,60 @@ function resolveVenueForBooking(user, text, history) {
     return null;
 }
 /**
- * When the user says "book the 5:45" etc., force the agent to call book_restaurant_table
- * instead of claiming booking is unavailable.
+ * Resolve a venue from the CURRENT message only (named venue, explicit
+ * selection, or a sole option). Unlike resolveVenueForBooking this never falls
+ * back to history, so it is safe to use for implicit selections like
+ * "Claudie at 9:30" where no booking verb is present.
+ */
+function resolveVenueFromSelection(user, text) {
+    const ctx = user.last_restaurant_search;
+    if (!ctx?.venues?.length)
+        return null;
+    for (const v of ctx.venues) {
+        if (venueMentionedInText(v, text))
+            return v;
+    }
+    if (ctx.selected_venue_id != null) {
+        const selected = ctx.venues.find((v) => v.venue_id === ctx.selected_venue_id);
+        if (selected)
+            return selected;
+    }
+    if (ctx.venues.length === 1)
+        return ctx.venues[0];
+    return null;
+}
+function stageBookingContext(text, venue, date, partySize, time) {
+    return `${text}\n\n[Context: User wants to book ${venue.name} (venue_id=${venue.venue_id}) on ${date} for ${partySize} at ${time}. Call book_restaurant_table WITHOUT confirm (omit confirm or confirm=false) with venue_id=${venue.venue_id}, date=${date}, party_size=${partySize}, time="${time}". This staging tool call is REQUIRED — do NOT write a "just to confirm" message yourself; use the tool's formatted field as your reply, and do NOT book until they say yes. Restaurant booking IS available — never say coming soon or tell them to use the Resy app.]`;
+}
+/**
+ * Force the agent to call book_restaurant_table (staging) instead of inventing a
+ * confirmation message or claiming booking is unavailable. Triggers on two cases:
+ *   1. Explicit verb + time: "book the 5:45", "reserve Carbone at 7".
+ *   2. Implicit selection + time: "Claudie at 9:30", "the second one at 8" — a
+ *      venue (or sole/selected option) plus a time, even with no booking verb.
  */
 export function augmentBookRestaurantCommand(text, user, history) {
-    if (!/\b(book|reserve|reservation)\b/i.test(text))
-        return text;
     const ctx = user.last_restaurant_search;
     if (!ctx?.search_params?.date)
         return text;
     const time = parseTimeFromUserMessage(text) ?? normalizeReservationTimeLabel(text);
     if (!time)
         return text;
-    const venue = resolveVenueForBooking(user, text, history);
-    if (!venue) {
-        return `${text}\n\n[Context: User wants to book a table at ${time} but no single restaurant is selected. Ask which restaurant from the latest search, or call get_restaurant_availability first.]`;
-    }
     const { date, party_size: partySize } = ctx.search_params;
-    return `${text}\n\n[Context: User wants to book ${venue.name} (venue_id=${venue.venue_id}) on ${date} for ${partySize} at ${time}. Call book_restaurant_table WITHOUT confirm (omit confirm or confirm=false) with venue_id=${venue.venue_id}, date=${date}, party_size=${partySize}, time="${time}". Use the tool's formatted field as your reply — do NOT book until they say yes. Restaurant booking IS available — never say coming soon or tell them to use the Resy app.]`;
+    const hasBookVerb = /\b(book|reserve|reservation)\b/i.test(text);
+    if (hasBookVerb) {
+        const venue = resolveVenueForBooking(user, text, history);
+        if (!venue) {
+            return `${text}\n\n[Context: User wants to book a table at ${time} but no single restaurant is selected. Ask which restaurant from the latest search, or call get_restaurant_availability first.]`;
+        }
+        return stageBookingContext(text, venue, date, partySize, time);
+    }
+    // Implicit selection (no booking verb): only stage when the venue is
+    // unambiguously identified by the current message itself.
+    const venue = resolveVenueFromSelection(user, text);
+    if (!venue)
+        return text;
+    return stageBookingContext(text, venue, date, partySize, time);
 }
 const RESTAURANT_CONFIRM_YES = /^(yes|yep|yeah|y|sure|ok|okay|confirm|confirmed|do it|book it|go ahead|sounds good|let's do it|lets do it)\b/i;
 const RESTAURANT_CONFIRM_NO = /^(no|nope|nah|not yet|wait|stop|cancel|nevermind|never mind)\b/i;
