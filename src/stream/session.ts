@@ -21,6 +21,7 @@ import {
   computeRateLimitReconnectDelayMs,
   computeReconnectDelayMs,
   isSpectrumRateLimited,
+  isTransientSpectrumConnectError,
   sleep,
 } from './reconnect.js';
 
@@ -200,9 +201,14 @@ export async function runSpectrumForever(): Promise<never> {
       console.log(
         `[stream] proactive refresh after ${getStreamRefreshMs()}ms connected`,
       );
-    } else if (reason === 'error') {
+    } else     if (reason === 'error') {
       if (rateLimited) {
         console.warn('[stream] Spectrum rate limited (429) — backing off before reconnect');
+        console.warn(
+          '[stream] Only one remiText worker should run per PROJECT_ID (stop local `npm start` if Render is live).',
+        );
+      } else if (connectErr != null && isTransientSpectrumConnectError(connectErr)) {
+        console.warn('[stream] Spectrum connect error (transient) — slower reconnect');
       } else {
         console.warn('[stream] session ended with error — reconnecting');
       }
@@ -228,8 +234,13 @@ export async function runSpectrumForever(): Promise<never> {
     markReconnecting(reason);
 
     const delay = rateLimited
-      ? computeRateLimitReconnectDelayMs(rateLimitAttempt)
-      : computeReconnectDelayMs(errorAttempt);
+      ? computeRateLimitReconnectDelayMs(rateLimitAttempt, connectErr ?? undefined)
+      : connectErr != null && isTransientSpectrumConnectError(connectErr)
+        ? computeReconnectDelayMs(errorAttempt, {
+            baseMs: Number(process.env.STREAM_TRANSIENT_BACKOFF_MS ?? 8_000),
+            maxMs: Number(process.env.STREAM_RECONNECT_MAX_BACKOFF_MS ?? 120_000),
+          })
+        : computeReconnectDelayMs(errorAttempt);
     console.log(
       `[stream] reconnect in ${(delay / 1000).toFixed(1)}s` +
         (rateLimited

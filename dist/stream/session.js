@@ -4,7 +4,7 @@ import { terminal } from 'spectrum-ts/providers/terminal';
 import { handleMessage } from '../handlers/message.js';
 import { isResyConfigured, warmResyAuth } from '../services/resy.js';
 import { getLastInboundBeforeSession, getStreamRefreshMs, getStreamStaleMs, isStreamRefreshDue, isStreamStale, markConnectFailed, markConnected, markConnecting, markReconnecting, recordInbound, } from './health.js';
-import { computeRateLimitReconnectDelayMs, computeReconnectDelayMs, isSpectrumRateLimited, sleep, } from './reconnect.js';
+import { computeRateLimitReconnectDelayMs, computeReconnectDelayMs, isSpectrumRateLimited, isTransientSpectrumConnectError, sleep, } from './reconnect.js';
 let lastConnectError = null;
 export function takeLastConnectError() {
     const err = lastConnectError;
@@ -165,6 +165,10 @@ export async function runSpectrumForever() {
         else if (reason === 'error') {
             if (rateLimited) {
                 console.warn('[stream] Spectrum rate limited (429) — backing off before reconnect');
+                console.warn('[stream] Only one remiText worker should run per PROJECT_ID (stop local `npm start` if Render is live).');
+            }
+            else if (connectErr != null && isTransientSpectrumConnectError(connectErr)) {
+                console.warn('[stream] Spectrum connect error (transient) — slower reconnect');
             }
             else {
                 console.warn('[stream] session ended with error — reconnecting');
@@ -188,8 +192,13 @@ export async function runSpectrumForever() {
         }
         markReconnecting(reason);
         const delay = rateLimited
-            ? computeRateLimitReconnectDelayMs(rateLimitAttempt)
-            : computeReconnectDelayMs(errorAttempt);
+            ? computeRateLimitReconnectDelayMs(rateLimitAttempt, connectErr ?? undefined)
+            : connectErr != null && isTransientSpectrumConnectError(connectErr)
+                ? computeReconnectDelayMs(errorAttempt, {
+                    baseMs: Number(process.env.STREAM_TRANSIENT_BACKOFF_MS ?? 8_000),
+                    maxMs: Number(process.env.STREAM_RECONNECT_MAX_BACKOFF_MS ?? 120_000),
+                })
+                : computeReconnectDelayMs(errorAttempt);
         console.log(`[stream] reconnect in ${(delay / 1000).toFixed(1)}s` +
             (rateLimited
                 ? ` (rate limit attempt ${rateLimitAttempt})`
