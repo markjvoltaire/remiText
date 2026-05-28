@@ -98,6 +98,8 @@ import {
   generateFlightCardImage,
   flightCardInputFromHeldOrder,
   flightCardInputFromOffer,
+  generateRestaurantCardImage,
+  restaurantCardInputFromVenue,
   type PreviewCardImage,
 } from '../images/satori/index.js';
 import type {
@@ -115,11 +117,22 @@ const SEARCH_PREVIEW_CARD_LIMIT = Math.max(
   Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '5', 10) || 0),
 );
 
+const RESTAURANT_SMS_VENUE_LIMIT = 4;
+
 /** Cheapest first; when preview cards are enabled, same length as image count. */
 function surfacedSearchOffers(offers: FlightOffer[]): FlightOffer[] {
   const sorted = sortFlightOffersByPrice(offers);
   if (SEARCH_PREVIEW_CARD_LIMIT <= 0) return sorted;
   return sorted.slice(0, SEARCH_PREVIEW_CARD_LIMIT);
+}
+
+/** Same venues as SMS copy and preview cards (max 4). */
+function surfacedRestaurantVenues(venues: RestaurantVenue[]): RestaurantVenue[] {
+  const limit =
+    SEARCH_PREVIEW_CARD_LIMIT > 0
+      ? Math.min(RESTAURANT_SMS_VENUE_LIMIT, SEARCH_PREVIEW_CARD_LIMIT)
+      : RESTAURANT_SMS_VENUE_LIMIT;
+  return venues.slice(0, limit);
 }
 
 function paymentFailureMessage(err: unknown): string {
@@ -226,7 +239,8 @@ Rules:
 - Keep replies short. Max 3 sentences unless you are pasting tool output (flights with preview cards, or restaurant search results).
 - Plain text only: no Markdown, no asterisks (*), no bold/italics markers, no backticks.
 - When search_flights returns a formatted option list, use "formatted" verbatim — every block matches one preview image (same count, cheapest-first). Never shorten flight options when preview cards are attached.
-- When search_restaurants or get_restaurant_availability returns "formatted", use it verbatim — it is already curated concierge copy. Do not add inventory, headers, or a second CTA.
+- When search_restaurants returns "formatted", use it verbatim — every block matches one preview image (same count, same order). Do not add inventory, headers, or a second CTA.
+- When get_restaurant_availability returns "formatted", use it verbatim — it is already curated concierge copy. Do not add inventory, headers, or a second CTA.
 - Always resolve relative dates (e.g. "Friday", "tonight", "this Saturday") before calling search_flights or search_restaurants.
 - When the user says night, dinner, evening, lunch, brunch, or afternoon, pass meal_period on search_restaurants (night/dinner/evening → "night"). Dinner/night slots start at 5pm — never surface 3pm for "Friday night".
 - Decide whether the user wants a one-way or round-trip flight. If round-trip, collect both departure_date and return_date before calling search_flights.
@@ -341,6 +355,53 @@ async function attachFlightCardSafely(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[flightCardImage] skipped for ${tag}: ${msg}`);
+  }
+}
+
+async function attachRestaurantPreviewCardsSafely(
+  ctx: AgentSessionContext,
+  venues: RestaurantVenue[],
+  meta: { date: string; partySize: number },
+  tag: string,
+): Promise<void> {
+  if (SEARCH_PREVIEW_CARD_LIMIT === 0 || venues.length === 0) return;
+
+  try {
+    const images: Array<Awaited<ReturnType<typeof generateRestaurantCardImage>>> = [];
+    for (const [index, venue] of venues.entries()) {
+      const input = restaurantCardInputFromVenue(venue, {
+        date: meta.date,
+        partySize: meta.partySize,
+        optionLabel: `Option ${index + 1}`,
+      });
+      const img = await generateRestaurantCardImage(input);
+      images.push(img);
+    }
+
+    let attached = 0;
+    for (const [index, img] of images.entries()) {
+      if (img) {
+        const venue = venues[index];
+        ctx.attachments.push({
+          ...img,
+          ref: venue
+            ? {
+                kind: 'restaurant',
+                optionIndex: index,
+                entityId: String(venue.venue_id),
+                label: venue.name,
+              }
+            : undefined,
+        });
+        attached += 1;
+      }
+    }
+    if (attached > 0) {
+      console.log(`[restaurantCardImage] attached ${attached} preview(s) for ${tag}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[restaurantCardImage] preview skipped for ${tag}: ${msg}`);
   }
 }
 
@@ -907,7 +968,7 @@ async function executeTool(
         venues = filterVenuesByMealPeriod(venues, mealPeriod);
       }
 
-      const surfaced = venues;
+      const surfaced = surfacedRestaurantVenues(venues);
       const mealLabel = mealPeriod ? mealPeriodLabel(mealPeriod) : undefined;
       let formatted = restaurantsToSMS(surfaced, { location, date, partySize, mealPeriod });
       if (queryRelaxed && surfaced.length > 0) {
@@ -916,6 +977,13 @@ async function executeTool(
       if (mealPeriod && surfaced.length === 0) {
         formatted = `${formatted}\n\nWant me to check the full day instead?`;
       }
+
+      await attachRestaurantPreviewCardsSafely(
+        ctx,
+        surfaced,
+        { date, partySize },
+        `search:${location}`,
+      );
 
       const saved = await setLastRestaurantSearch(user.id, {
         venues: summarizeVenuesForContext(surfaced),
