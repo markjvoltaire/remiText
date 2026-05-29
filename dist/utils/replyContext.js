@@ -92,6 +92,12 @@ export function parseTimeFromUserMessage(text) {
     const match = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i);
     if (!match)
         return null;
+    const matchIndex = match.index ?? 0;
+    const afterMatch = text.slice(matchIndex + match[0].length);
+    // Reject day-of-month ordinals ("24th", "27th") mistaken for clock times.
+    if (!match[2] && !match[3] && /^\s*(?:st|nd|rd|th)\b/i.test(afterMatch)) {
+        return null;
+    }
     let hour = Number.parseInt(match[1], 10);
     const minute = match[2] ?? '00';
     let period = match[3]?.toUpperCase();
@@ -175,7 +181,19 @@ function stageBookingContext(text, venue, date, partySize, time) {
  *   2. Implicit selection + time: "Claudie at 9:30", "the second one at 8" — a
  *      venue (or sole/selected option) plus a time, even with no booking verb.
  */
+function looksLikeFlightMessage(text) {
+    return (/\b(flight|flights|fly|flying|airfare)\b/i.test(text) ||
+        /\bfrom\s+.+\s+to\s+/i.test(text) ||
+        /\b(one[- ]way|round[- ]?trip)\b/i.test(text) ||
+        /\b[A-Z]{3}\s*(→|->|to)\s*[A-Z]{3}\b/.test(text) ||
+        /\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec)\w*\s+\d{1,2}/i.test(text));
+}
 export function augmentBookRestaurantCommand(text, user, history) {
+    const builder = user.flight_trip_builder;
+    if (builder?.step === 'outbound' || builder?.step === 'return')
+        return text;
+    if (looksLikeFlightMessage(text))
+        return text;
     const ctx = user.last_restaurant_search;
     if (!ctx?.search_params?.date)
         return text;
@@ -191,17 +209,23 @@ export function augmentBookRestaurantCommand(text, user, history) {
         }
         return stageBookingContext(text, venue, date, partySize, time);
     }
-    // Implicit selection (no booking verb): only stage when the venue is
-    // unambiguously identified by the current message itself.
-    const venue = resolveVenueFromSelection(user, text);
-    if (!venue)
-        return text;
-    return stageBookingContext(text, venue, date, partySize, time);
+    // Implicit selection (no booking verb): require the venue name in this message.
+    // Do not use sole-venue / selected-venue shortcuts — those misfire on unrelated texts
+    // that happen to contain a parseable time (e.g. flight date ranges).
+    for (const v of ctx.venues) {
+        if (venueMentionedInText(v, text)) {
+            return stageBookingContext(text, v, date, partySize, time);
+        }
+    }
+    return text;
 }
 const RESTAURANT_CONFIRM_YES = /^(yes|yep|yeah|y|sure|ok|okay|confirm|confirmed|do it|book it|go ahead|sounds good|let's do it|lets do it)\b/i;
 const RESTAURANT_CONFIRM_NO = /^(no|nope|nah|not yet|wait|stop|cancel|nevermind|never mind)\b/i;
 /** After a confirmation prompt, user said yes → book with confirm=true. */
 export function augmentRestaurantBookingYes(text, user) {
+    const trip = user.flight_trip_builder;
+    if (trip?.step === 'outbound' || trip?.step === 'return')
+        return text;
     const pending = user.pending_restaurant_booking;
     if (!pending)
         return text;
@@ -238,6 +262,28 @@ function isoToTimeLabel(iso) {
     const h12 = hour % 12 || 12;
     return `${h12}:${minute} ${period}`;
 }
+const GENERIC_AIRLINE_WORDS = new Set([
+    'air',
+    'airline',
+    'airlines',
+    'airways',
+    'lines',
+    'express',
+    'international',
+]);
+function airlineMentionedInText(leg, text) {
+    const haystack = text.toLowerCase();
+    const airline = leg.airline.trim().toLowerCase();
+    if (!airline)
+        return false;
+    if (haystack.includes(airline))
+        return true;
+    const tokens = airline
+        .split(/\s+/)
+        .filter((w) => w.length >= 3 && !GENERIC_AIRLINE_WORDS.has(w));
+    return tokens.some((w) => new RegExp(`\\b${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(haystack));
+}
+const FLIGHT_LEG_AFFIRMATIVE = /^(yes|yep|yeah|y|sure|ok|okay|that one|that works|sounds good|go ahead)\b/i;
 /**
  * Resolve which leg the user picked from the current options, using (in order):
  * "cheapest"/"lowest" -> the first (cheapest-sorted) option; an explicit ordinal
@@ -258,7 +304,7 @@ function resolveLegFromText(options, text) {
         if (idx >= 0 && options[idx])
             return options[idx];
     }
-    const airlineMatches = options.filter((o) => o.airline && lower.includes(o.airline.toLowerCase()));
+    const airlineMatches = options.filter((o) => airlineMentionedInText(o, text));
     if (airlineMatches.length === 1)
         return airlineMatches[0];
     const wanted = parseTimeFromUserMessage(text);
@@ -266,6 +312,19 @@ function resolveLegFromText(options, text) {
         const timeMatches = options.filter((o) => isoToTimeLabel(o.departing_at) === wanted);
         if (timeMatches.length === 1)
             return timeMatches[0];
+    }
+    return null;
+}
+/** Match "yes" / "ok" to the flight Remi just asked about in the prior assistant turn. */
+function resolveLegFromAssistantConfirmation(options, history) {
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+        const msg = history[i];
+        if (!msg || msg.role !== 'assistant')
+            continue;
+        const matches = options.filter((o) => airlineMentionedInText(o, msg.content));
+        if (matches.length === 1)
+            return matches[0];
+        return null;
     }
     return null;
 }
@@ -280,7 +339,7 @@ function stageFlightLegContext(text, kind, option) {
  * by position, airline, or time during an active round-trip build. No-op once
  * the trip is ready_to_book.
  */
-export function augmentFlightLegSelection(text, user) {
+export function augmentFlightLegSelection(text, user, history = []) {
     const builder = user.flight_trip_builder;
     if (!builder)
         return text;
@@ -299,7 +358,10 @@ export function augmentFlightLegSelection(text, user) {
     }
     if (!options?.length)
         return text;
-    const chosen = resolveLegFromText(options, text);
+    let chosen = resolveLegFromText(options, text);
+    if (!chosen && FLIGHT_LEG_AFFIRMATIVE.test(text.trim())) {
+        chosen = resolveLegFromAssistantConfirmation(options, history);
+    }
     if (!chosen)
         return text;
     return stageFlightLegContext(text, kind, chosen);

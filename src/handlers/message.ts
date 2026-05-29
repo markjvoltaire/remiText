@@ -87,8 +87,14 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   const history = await getConversationHistory(user.id);
   let agentInput = text;
 
-  const bookAugmented = augmentBookRestaurantCommand(text, user, history);
-  if (bookAugmented !== text) {
+  const flightLegAugmented = augmentFlightLegSelection(text, user, history);
+  if (flightLegAugmented !== text) {
+    console.log('[msg] flight leg selection augmented');
+    agentInput = flightLegAugmented;
+  }
+
+  const bookAugmented = augmentBookRestaurantCommand(agentInput, user, history);
+  if (bookAugmented !== agentInput) {
     console.log('[msg] book-restaurant intent augmented');
     agentInput = bookAugmented;
   }
@@ -97,12 +103,6 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   if (confirmAugmented !== agentInput) {
     console.log('[msg] restaurant booking confirmation augmented');
     agentInput = confirmAugmented;
-  }
-
-  const flightLegAugmented = augmentFlightLegSelection(agentInput, user);
-  if (flightLegAugmented !== agentInput) {
-    console.log('[msg] flight leg selection augmented');
-    agentInput = flightLegAugmented;
   }
 
   const replyTarget = await resolveInboundReplyTarget(space.id, id, text, message);

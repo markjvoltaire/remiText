@@ -36,3 +36,30 @@ export function formatLastSearchForPrompt(ctx) {
         'Do not ask for departure or return dates again if the user already gave them or if the options above already reflect those dates.',
     ].join('\n');
 }
+/** Active leg-by-leg round-trip builder — partial_offer_ids for select_*_flight tools. */
+export function formatFlightTripBuilderForPrompt(builder) {
+    if (!builder)
+        return '';
+    const lines = [];
+    if (builder.step === 'outbound' && builder.outbound_options.length > 0) {
+        lines.push('Round-trip builder — pick DEPARTURE (use select_outbound_flight with partial_offer_id):');
+        for (const [i, o] of builder.outbound_options.entries()) {
+            lines.push(`${i + 1}. partial_offer_id=${o.partial_offer_id} ${o.airline} ${o.flight_number} $${o.price}`);
+        }
+    }
+    else if (builder.step === 'return' && builder.return_options?.length) {
+        lines.push(`Round-trip builder — departure locked: ${builder.selected_outbound?.airline ?? 'selected'}. Pick RETURN (use select_return_flight with partial_offer_id):`);
+        for (const [i, o] of builder.return_options.entries()) {
+            lines.push(`${i + 1}. partial_offer_id=${o.partial_offer_id} ${o.airline} ${o.flight_number} $${o.price}`);
+        }
+    }
+    else if (builder.step === 'ready_to_book' && builder.final_offer_id) {
+        lines.push(`Round-trip ready to book — final_offer_id=${builder.final_offer_id} (use for hold_flight / book_flight).`);
+    }
+    if (lines.length === 0)
+        return '';
+    return [
+        ...lines,
+        'Never invent partial_offer_id values — only use ids listed above.',
+    ].join('\n');
+}

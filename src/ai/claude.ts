@@ -25,7 +25,11 @@ import {
   legOptionsToSMS,
   tripSummaryToSMS,
 } from '../utils/formatFlights.js';
-import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
+import {
+  summarizeOffersForContext,
+  formatLastSearchForPrompt,
+  formatFlightTripBuilderForPrompt,
+} from '../utils/flightSearchContext.js';
 import { formatHumanDate } from '../utils/smsFormat.js';
 import {
   formatLastRestaurantSearchForPrompt,
@@ -641,10 +645,12 @@ async function executeTool(
     const partialId = input.partial_offer_id as string;
     const chosen = builder.outbound_options.find((o) => o.partial_offer_id === partialId);
     if (!chosen) {
+      const validIds = builder.outbound_options
+        .map((o) => `${o.airline}: ${o.partial_offer_id}`)
+        .join('; ');
       return JSON.stringify({
         error: true,
-        message:
-          'That departure is not in the current options. Show the departure list again and have the user pick one of those.',
+        message: `That departure is not in the current options. Valid partial_offer_ids: ${validIds}. Call select_outbound_flight with one of those — do not invent ids or restart the search unless expired.`,
       });
     }
 
@@ -715,10 +721,12 @@ async function executeTool(
     const partialId = input.partial_offer_id as string;
     const chosenReturn = builder.return_options.find((o) => o.partial_offer_id === partialId);
     if (!chosenReturn) {
+      const validIds = builder.return_options
+        .map((o) => `${o.airline}: ${o.partial_offer_id}`)
+        .join('; ');
       return JSON.stringify({
         error: true,
-        message:
-          'That return is not in the current options. Show the return list again and have the user pick one of those.',
+        message: `That return is not in the current options. Valid partial_offer_ids: ${validIds}. Call select_return_flight with one of those — do not invent ids.`,
       });
     }
 
@@ -1793,6 +1801,7 @@ export async function runAgentLoop(
   user: UserProfile,
 ): Promise<AgentLoopResult> {
   const flightPending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
+  const flightTripBuilder = formatFlightTripBuilderForPrompt(user.flight_trip_builder ?? undefined);
   const restaurantPending = formatLastRestaurantSearchForPrompt(
     user.last_restaurant_search ?? undefined,
   );
@@ -1804,9 +1813,13 @@ export async function runAgentLoop(
     : user.name
       ? `User profile: name=${user.name}.`
       : '';
-  const contextParts = [profileContext, flightPending, restaurantPending, restaurantConfirmPending].filter(
-    Boolean,
-  );
+  const contextParts = [
+    profileContext,
+    flightTripBuilder,
+    flightPending,
+    restaurantPending,
+    restaurantConfirmPending,
+  ].filter(Boolean);
   const todayISO = new Date().toISOString().split('T')[0]!;
   const resolved = resolveRelativeDates(userMessage, todayISO);
   const systemBase = contextParts.length ? `${SYSTEM_PROMPT}\n\n${contextParts.join('\n\n')}` : SYSTEM_PROMPT;

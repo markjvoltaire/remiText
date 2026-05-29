@@ -3,7 +3,7 @@ import { tools } from './tools.js';
 import { searchFlights, createPartialSearch, getReturnOptions, getCombinedFare, holdOrder, bookOrderInstant, getOfferPricing, payForOrderWithBalance, OfferRequiresInstantPaymentError, } from '../services/duffel.js';
 import { chargeViaSPT, refundPaymentIntent, isStripeConfigurationError } from '../services/stripe.js';
 import { offersToSMS, formatHeldOrderConfirmationSMS, sortFlightOffersByPrice, legOptionsToSMS, tripSummaryToSMS, } from '../utils/formatFlights.js';
-import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
+import { summarizeOffersForContext, formatLastSearchForPrompt, formatFlightTripBuilderForPrompt, } from '../utils/flightSearchContext.js';
 import { formatHumanDate } from '../utils/smsFormat.js';
 import { formatLastRestaurantSearchForPrompt, formatPendingRestaurantBookingForPrompt, summarizeVenuesForContext, slimVenuesForTool, } from '../utils/restaurantSearchContext.js';
 import { restaurantsToSMS, restaurantDetailToSMS, formatRestaurantBookingConfirmPromptSMS, formatReservationConfirmationSMS, reservationsListToSMS, formatReservationCancellationSMS, } from '../utils/formatRestaurants.js';
@@ -460,9 +460,12 @@ async function executeTool(toolName, input, user, ctx) {
         const partialId = input.partial_offer_id;
         const chosen = builder.outbound_options.find((o) => o.partial_offer_id === partialId);
         if (!chosen) {
+            const validIds = builder.outbound_options
+                .map((o) => `${o.airline}: ${o.partial_offer_id}`)
+                .join('; ');
             return JSON.stringify({
                 error: true,
-                message: 'That departure is not in the current options. Show the departure list again and have the user pick one of those.',
+                message: `That departure is not in the current options. Valid partial_offer_ids: ${validIds}. Call select_outbound_flight with one of those — do not invent ids or restart the search unless expired.`,
             });
         }
         let returnLegs;
@@ -515,9 +518,12 @@ async function executeTool(toolName, input, user, ctx) {
         const partialId = input.partial_offer_id;
         const chosenReturn = builder.return_options.find((o) => o.partial_offer_id === partialId);
         if (!chosenReturn) {
+            const validIds = builder.return_options
+                .map((o) => `${o.airline}: ${o.partial_offer_id}`)
+                .join('; ');
             return JSON.stringify({
                 error: true,
-                message: 'That return is not in the current options. Show the return list again and have the user pick one of those.',
+                message: `That return is not in the current options. Valid partial_offer_ids: ${validIds}. Call select_return_flight with one of those — do not invent ids.`,
             });
         }
         let combined;
@@ -1444,6 +1450,7 @@ async function executeTool(toolName, input, user, ctx) {
 }
 export async function runAgentLoop(userMessage, history, user) {
     const flightPending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
+    const flightTripBuilder = formatFlightTripBuilderForPrompt(user.flight_trip_builder ?? undefined);
     const restaurantPending = formatLastRestaurantSearchForPrompt(user.last_restaurant_search ?? undefined);
     const restaurantConfirmPending = formatPendingRestaurantBookingForPrompt(user.pending_restaurant_booking ?? undefined);
     const profileContext = user.city?.trim()
@@ -1451,7 +1458,13 @@ export async function runAgentLoop(userMessage, history, user) {
         : user.name
             ? `User profile: name=${user.name}.`
             : '';
-    const contextParts = [profileContext, flightPending, restaurantPending, restaurantConfirmPending].filter(Boolean);
+    const contextParts = [
+        profileContext,
+        flightTripBuilder,
+        flightPending,
+        restaurantPending,
+        restaurantConfirmPending,
+    ].filter(Boolean);
     const todayISO = new Date().toISOString().split('T')[0];
     const resolved = resolveRelativeDates(userMessage, todayISO);
     const systemBase = contextParts.length ? `${SYSTEM_PROMPT}\n\n${contextParts.join('\n\n')}` : SYSTEM_PROMPT;
