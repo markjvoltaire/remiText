@@ -1,7 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
-import type { UserProfile } from '../types.js';
+import type { ConversationMessage, UserProfile } from '../types.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { buildSignupUrl } from '../utils/signupUrl.js';
+import { getUserByPhone } from './supabase.js';
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -252,5 +253,87 @@ export async function advanceOnboarding(
 
 export function linkSetupReminderMessage(phone: string): string {
   const url = buildSignupUrl(phone);
-  return `you still need to connect Link before we can book anything:\n${url}`;
+  return `connect Link here (about a minute):\n${url}\n\ntext me when you're done.`;
+}
+
+const LINK_DONE =
+  /^(done|finished|all set|ready|i'm done|im done|approved|connected|complete|completed)\b/i;
+const LINK_RESEND = /\b(link|signup|sign up|payment|pay|setup|set up|url|resend)\b/i;
+const LINK_CANCEL = /^(never\s*mind|nevermind|nvm|cancel|stop|quit|later|not now)\b/i;
+const ONBOARDING_CANCEL = LINK_CANCEL;
+
+export async function cancelOnboarding(phone: string): Promise<void> {
+  await supabase.from('onboarding_sessions').delete().eq('phone', phone);
+}
+
+function recentLinkReminderSent(history: ConversationMessage[]): boolean {
+  return history
+    .slice(-6)
+    .some(
+      (m) =>
+        m.role === 'assistant' &&
+        (/remitexts\.co\/signup|connect Link|setup url/i.test(m.content) ||
+          /text 'link'/i.test(m.content)),
+    );
+}
+
+export type AwaitingLinkReply =
+  | { kind: 'completed'; user: UserProfile }
+  | { kind: 'reply'; message: string };
+
+/** User finished SMS profile but has not connected Link yet. */
+export async function handleAwaitingLinkMessage(
+  user: UserProfile,
+  text: string,
+  history: ConversationMessage[],
+): Promise<AwaitingLinkReply> {
+  const refreshed = await getUserByPhone(user.phone);
+  const current = refreshed ?? user;
+
+  if (isLinkWalletConnected(current)) {
+    return { kind: 'completed', user: current };
+  }
+
+  const trimmed = text.trim();
+  const first = current.name.trim().split(/\s+/)[0] || 'there';
+  const url = buildSignupUrl(current.phone);
+
+  if (LINK_DONE.test(trimmed) || /\b(done|approved|connected|finished)\b/i.test(trimmed)) {
+    return {
+      kind: 'reply',
+      message:
+        `not seeing Link connected yet.\n\n` +
+        `open the link, approve in the Link app, tap "I've approved in Link", then text me done.\n\n${url}`,
+    };
+  }
+
+  if (LINK_RESEND.test(trimmed)) {
+    return { kind: 'reply', message: linkSetupReminderMessage(current.phone) };
+  }
+
+  if (LINK_CANCEL.test(trimmed)) {
+    return {
+      kind: 'reply',
+      message: "no worries. text 'link' when you're ready to finish setup.",
+    };
+  }
+
+  if (recentLinkReminderSent(history)) {
+    return {
+      kind: 'reply',
+      message:
+        "still need Link connected before i can search or book. text 'link' for the setup url, or 'done' after you finish.",
+    };
+  }
+
+  return {
+    kind: 'reply',
+    message:
+      `hey ${first} — last step is Link (takes about a minute):\n${url}\n\n` +
+      `text 'done' when finished, or 'link' to resend.`,
+  };
+}
+
+export function isOnboardingCancelMessage(text: string): boolean {
+  return ONBOARDING_CANCEL.test(text.trim());
 }

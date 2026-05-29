@@ -2,7 +2,7 @@ import { attachment } from 'spectrum-ts';
 import { claimMessage, getUserByPhone, getConversationHistory, appendMessage, setLastSentPreviewCards, } from '../services/supabase.js';
 import { markRead, sendPhotoStack, resolveInboundReplyTarget, isReplyToOurMessage } from '../services/imessage.js';
 import { runAgentLoop, isAnthropicCapacityError } from '../ai/claude.js';
-import { advanceOnboarding, getOnboardingSession, isLinkWalletConnected, linkSetupReminderMessage, startOnboarding, } from '../services/onboarding.js';
+import { advanceOnboarding, cancelOnboarding, getOnboardingSession, handleAwaitingLinkMessage, isLinkWalletConnected, isOnboardingCancelMessage, startOnboarding, } from '../services/onboarding.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { stripMarkdown } from '../utils/stripMarkdown.js';
 import { augmentBookRestaurantCommand, augmentLinkConnectApproval, augmentRestaurantBookingYes, augmentUserMessageWithReplyContext, augmentUserMessageWithSelection, inferPreviewKind, } from '../utils/replyContext.js';
@@ -37,6 +37,11 @@ export async function handleMessage(space, message) {
     const user = await getUserByPhone(contactKey);
     if (!user) {
         let session = await getOnboardingSession(contactKey);
+        if (session && isOnboardingCancelMessage(text)) {
+            await cancelOnboarding(session.phone);
+            await space.send("no worries — text me anytime when you want to pick this back up.");
+            return;
+        }
         if (!session) {
             await startOnboarding(contactKey);
             await space.send("hey — i'm remi.\n\nwhat's your first name?");
@@ -51,18 +56,33 @@ export async function handleMessage(space, message) {
         return;
     }
     if (!isLinkWalletConnected(user)) {
-        await space.send(linkSetupReminderMessage(user.phone));
+        const history = await getConversationHistory(user.id);
+        const linkResult = await handleAwaitingLinkMessage(user, text, history);
+        await appendMessage(user.id, 'user', text);
+        if (linkResult.kind === 'completed') {
+            const welcome = welcomeMessage(linkResult.user.name);
+            sessionAssistantLog(welcome);
+            await appendMessage(user.id, 'assistant', welcome);
+            await space.send(welcome);
+            return;
+        }
+        sessionAssistantLog(linkResult.message);
+        await appendMessage(user.id, 'assistant', linkResult.message);
+        await space.send(linkResult.message);
         return;
     }
     const history = await getConversationHistory(user.id);
     const hadAssistantReply = history.some((m) => m.role === 'assistant');
     if (!hadAssistantReply &&
         /^(done|finished|all set|ready|i'm done|im done)\b/i.test(text.trim())) {
-        const welcome = welcomeMessage(user.name);
-        sessionAssistantLog(welcome);
-        await appendMessage(user.id, 'assistant', welcome);
-        await space.send(welcome);
-        return;
+        const refreshed = await getUserByPhone(contactKey);
+        if (refreshed && isLinkWalletConnected(refreshed)) {
+            const welcome = welcomeMessage(refreshed.name);
+            sessionAssistantLog(welcome);
+            await appendMessage(user.id, 'assistant', welcome);
+            await space.send(welcome);
+            return;
+        }
     }
     console.log(`[msg] user=${user.id}`);
     let agentInput = text;
