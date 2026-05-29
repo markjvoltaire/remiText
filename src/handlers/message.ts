@@ -67,17 +67,17 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
     let session = await getOnboardingSession(contactKey);
     if (!session) {
       await startOnboarding(contactKey);
-      await message.reply("hey — i'm remi.\n\nwhat's your name?");
+      await space.send("hey — i'm remi.\n\nwhat's your name?");
       return;
     }
 
     const result = await advanceOnboarding(session, text);
     if (result.kind === 'prompt') {
-      await message.reply(result.message);
+      await space.send(result.message);
       return;
     }
 
-    await message.reply(welcomeMessage(result.user.name));
+    await space.send(welcomeMessage(result.user.name));
     return;
   }
 
@@ -153,7 +153,7 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
         "Claude's API is temporarily overloaded. Please send your message again in a few seconds — I'll reply as soon as it's available.";
       sessionAssistantLog(sorry);
       await appendMessage(user.id, 'assistant', sorry);
-      await message.reply(sorry);
+      await space.send(sorry);
       return;
     }
     sessionTurnAbort(messageText);
@@ -214,7 +214,7 @@ async function sendReplyWithAttachments(
   images: PreviewCardImage[],
 ): Promise<SentPreviewMeta> {
   if (images.length === 0) {
-    await message.reply(text);
+    await space.send(text);
     return {};
   }
 
@@ -245,23 +245,23 @@ async function sendReplyWithAttachments(
 
   const [first, second, ...rest] = builders;
   if (!first) {
-    await message.reply(text);
+    await space.send(text);
     return {};
   }
 
   try {
     if (!second) {
-      const sent = await message.reply(first, text);
+      const sent = await space.send(first, text);
       const firstSent = Array.isArray(sent) ? sent[0] : sent;
       return { parentMessageId: firstSent?.id };
     }
-    const sent = await message.reply(first, second, ...rest, text);
+    const sent = await space.send(first, second, ...rest, text);
     const firstSent = Array.isArray(sent) ? sent[0] : sent;
     return { parentMessageId: firstSent?.id };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[reply] attachment send failed, falling back to text-only: ${msg}`);
-    await message.reply(text);
+    await space.send(text);
     return {};
   }
 }
