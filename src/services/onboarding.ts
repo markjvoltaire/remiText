@@ -8,7 +8,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
-type OnboardingStep = 'first_name' | 'last_name' | 'email';
+type OnboardingStep = 'first_name' | 'last_name' | 'email' | 'city';
 
 export interface OnboardingSession {
   phone: string;
@@ -16,6 +16,7 @@ export interface OnboardingSession {
   first_name: string | null;
   last_name: string | null;
   email: string | null;
+  city: string | null;
 }
 
 const GREETING_TOKENS = new Set([
@@ -52,10 +53,16 @@ function normalizeEmail(raw: string): string | null {
   return email;
 }
 
+function normalizeCity(raw: string): string | null {
+  const city = raw.replace(/\s+/g, ' ').trim();
+  if (city.length < 2) return null;
+  if (GREETING_TOKENS.has(city.toLowerCase())) return null;
+  return city;
+}
+
 function parseStep(raw: string | null | undefined): OnboardingStep {
-  if (raw === 'last_name' || raw === 'email') return raw;
+  if (raw === 'last_name' || raw === 'email' || raw === 'city') return raw;
   if (raw === 'name') return 'first_name';
-  if (raw === 'city') return 'email';
   return 'first_name';
 }
 
@@ -66,7 +73,7 @@ export function isLinkWalletConnected(user: UserProfile): boolean {
 export async function getOnboardingSession(phone: string): Promise<OnboardingSession | null> {
   const { data, error } = await supabase
     .from('onboarding_sessions')
-    .select('phone, step, first_name, last_name, email, name')
+    .select('phone, step, first_name, last_name, email, city, name')
     .eq('phone', phone)
     .maybeSingle();
   if (error || !data) return null;
@@ -82,6 +89,7 @@ export async function getOnboardingSession(phone: string): Promise<OnboardingSes
     first_name: legacyFirst,
     last_name: data.last_name ?? null,
     email: data.email ?? null,
+    city: data.city ?? null,
   };
 }
 
@@ -89,10 +97,17 @@ export async function startOnboarding(phone: string): Promise<OnboardingSession>
   const { data, error } = await supabase
     .from('onboarding_sessions')
     .upsert(
-      { phone, step: 'first_name', first_name: null, last_name: null, email: null },
+      {
+        phone,
+        step: 'first_name',
+        first_name: null,
+        last_name: null,
+        email: null,
+        city: null,
+      },
       { onConflict: 'phone' },
     )
-    .select('phone, step, first_name, last_name, email')
+    .select('phone, step, first_name, last_name, email, city')
     .single();
   if (error) throw error;
   return {
@@ -101,6 +116,7 @@ export async function startOnboarding(phone: string): Promise<OnboardingSession>
     first_name: data.first_name ?? null,
     last_name: data.last_name ?? null,
     email: data.email ?? null,
+    city: data.city ?? null,
   };
 }
 
@@ -109,6 +125,7 @@ async function createUserAwaitingLink(params: {
   firstName: string;
   lastName: string;
   email: string;
+  city: string;
 }): Promise<UserProfile> {
   const canonicalPhone = normalizeContactKey(params.phone);
   const fullName = `${params.firstName} ${params.lastName}`.trim();
@@ -117,6 +134,7 @@ async function createUserAwaitingLink(params: {
     phone: canonicalPhone,
     name: fullName,
     email: params.email,
+    city: params.city,
     date_of_birth: '1990-01-01',
     gender: 'm' as const,
     passport_number: null,
@@ -139,7 +157,7 @@ async function createUserAwaitingLink(params: {
     if (!existing) throw insertError;
     await supabase
       .from('users')
-      .update({ name: fullName, email: params.email })
+      .update({ name: fullName, email: params.email, city: params.city })
       .eq('id', existing.id);
     const { data: refreshed } = await supabase
       .from('users')
@@ -186,23 +204,36 @@ export async function advanceOnboarding(
     return { kind: 'prompt', message: "What's your email?" };
   }
 
-  const email = normalizeEmail(text);
-  if (!email) {
-    return { kind: 'prompt', message: 'Send a valid email (e.g. you@example.com).' };
+  if (session.step === 'email') {
+    const email = normalizeEmail(text);
+    if (!email) {
+      return { kind: 'prompt', message: 'Send a valid email (e.g. you@example.com).' };
+    }
+    await supabase
+      .from('onboarding_sessions')
+      .update({ email, step: 'city' })
+      .eq('phone', session.phone);
+    return { kind: 'prompt', message: 'What city are you in?' };
+  }
+
+  const city = normalizeCity(text);
+  if (!city) {
+    return { kind: 'prompt', message: 'What city are you in? (e.g. New York, Miami)' };
   }
 
   const latest = await getOnboardingSession(session.phone);
-  if (!latest?.first_name || !latest.last_name) {
+  if (!latest?.first_name || !latest.last_name || !latest.email) {
     return { kind: 'prompt', message: "What's your first name?" };
   }
 
-  await supabase.from('onboarding_sessions').update({ email }).eq('phone', session.phone);
+  await supabase.from('onboarding_sessions').update({ city }).eq('phone', session.phone);
 
   const user = await createUserAwaitingLink({
     phone: latest.phone,
     firstName: latest.first_name,
     lastName: latest.last_name,
-    email,
+    email: latest.email,
+    city,
   });
 
   await supabase.from('onboarding_sessions').delete().eq('phone', latest.phone);

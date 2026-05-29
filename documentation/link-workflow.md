@@ -33,7 +33,7 @@ User (iMessage)
 
 ## Signup flow (SMS + web)
 
-1. User texts Remi → SMS collects **first name**, **last name**, **email**.
+1. User texts Remi → SMS collects **first name**, **last name**, **email**, **city**.
 2. Remi creates a `users` row and texts the **signup link** (`/signup?phone=…` on remi-one-pager).
 3. User opens the link → **Connect Link** step (Stripe Link app approval).
 4. User texts back when done → Remi welcomes them; full agent is available only after `link_connected_at` / `link_auth_json` is set.
