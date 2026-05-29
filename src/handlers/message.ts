@@ -12,12 +12,15 @@ import { runAgentLoop, isAnthropicCapacityError } from '../ai/claude.js';
 import {
   advanceOnboarding,
   getOnboardingSession,
+  isLinkWalletConnected,
+  linkSetupReminderMessage,
   startOnboarding,
 } from '../services/onboarding.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { stripMarkdown } from '../utils/stripMarkdown.js';
 import {
   augmentBookRestaurantCommand,
+  augmentLinkConnectApproval,
   augmentRestaurantBookingYes,
   augmentUserMessageWithReplyContext,
   augmentUserMessageWithSelection,
@@ -67,12 +70,12 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
     let session = await getOnboardingSession(contactKey);
     if (!session) {
       await startOnboarding(contactKey);
-      await space.send("hey — i'm remi.\n\nwhat's your name?");
+      await space.send("hey — i'm remi.\n\nwhat's your first name?");
       return;
     }
 
     const result = await advanceOnboarding(session, text);
-    if (result.kind === 'prompt') {
+    if (result.kind === 'prompt' || result.kind === 'awaiting_link') {
       await space.send(result.message);
       return;
     }
@@ -81,9 +84,26 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
     return;
   }
 
-  console.log(`[msg] user=${user.id}`);
+  if (!isLinkWalletConnected(user)) {
+    await space.send(linkSetupReminderMessage(user.phone));
+    return;
+  }
 
   const history = await getConversationHistory(user.id);
+  const hadAssistantReply = history.some((m) => m.role === 'assistant');
+  if (
+    !hadAssistantReply &&
+    /^(done|finished|all set|ready|i'm done|im done)\b/i.test(text.trim())
+  ) {
+    const welcome = welcomeMessage(user.name);
+    sessionAssistantLog(welcome);
+    await appendMessage(user.id, 'assistant', welcome);
+    await space.send(welcome);
+    return;
+  }
+
+  console.log(`[msg] user=${user.id}`);
+
   let agentInput = text;
 
   const bookAugmented = augmentBookRestaurantCommand(text, user, history);
@@ -96,6 +116,12 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   if (confirmAugmented !== agentInput) {
     console.log('[msg] restaurant booking confirmation augmented');
     agentInput = confirmAugmented;
+  }
+
+  const linkAugmented = augmentLinkConnectApproval(agentInput, user);
+  if (linkAugmented !== agentInput) {
+    console.log('[msg] link connect approval augmented');
+    agentInput = linkAugmented;
   }
 
   const replyTarget = await resolveInboundReplyTarget(space.id, id, text, message);

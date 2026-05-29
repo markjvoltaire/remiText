@@ -119,6 +119,8 @@ export interface UserProfile {
   /** Serialized link-cli auth credentials for Stripe Link wallet */
   link_auth_json?: string | null;
   link_connected_at?: string | null;
+  /** Set when link_connect sent a verification URL; cleared after successful auth */
+  link_connect_started_at?: string | null;
 }
 
 export interface ConversationMessage {

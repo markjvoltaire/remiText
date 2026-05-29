@@ -269,10 +269,29 @@ export async function setLinkAuthJson(userId, authJson) {
         .update({
         link_auth_json: authJson,
         link_connected_at: new Date().toISOString(),
+        link_connect_started_at: null,
     })
         .eq('id', userId);
     if (error) {
         console.warn(`[supabase] setLinkAuthJson failed user=${userId}:`, error.message);
+    }
+}
+export async function setLinkConnectPending(userId) {
+    const { error } = await supabase
+        .from('users')
+        .update({ link_connect_started_at: new Date().toISOString() })
+        .eq('id', userId);
+    if (error) {
+        console.warn(`[supabase] setLinkConnectPending failed user=${userId}:`, error.message);
+    }
+}
+export async function clearLinkConnectPending(userId) {
+    const { error } = await supabase
+        .from('users')
+        .update({ link_connect_started_at: null })
+        .eq('id', userId);
+    if (error) {
+        console.warn(`[supabase] clearLinkConnectPending failed user=${userId}:`, error.message);
     }
 }
 export async function clearLinkAuth(userId) {

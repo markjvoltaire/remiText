@@ -9,7 +9,7 @@ import { restaurantsToSMS, restaurantDetailToSMS, formatRestaurantBookingConfirm
 import { resolveReservationToCancel } from '../utils/restaurantReservations.js';
 import { searchRestaurants, getRestaurantAvailability, reserveRestaurantTable, listUpcomingReservations, cancelReservation, findVenueSlotByTime, isResyConfigured, formatResyError, ResyNotConfiguredError, ResyApiError, } from '../services/resy.js';
 import { computeAllInPrice, formatMoneyFromCents, logPriceBreakdown } from '../utils/pricing.js';
-import { setLastFlightSearch, clearLastFlightSearch, setLastRestaurantSearch, setPendingRestaurantBooking, clearPendingRestaurantBooking, setPendingOrder, clearPendingOrder, saveFlightBooking, confirmFlightBooking, saveRestaurantBooking, getActiveRestaurantBookings, markRestaurantBookingCancelled, } from '../services/supabase.js';
+import { setLastFlightSearch, clearLastFlightSearch, setLastRestaurantSearch, setPendingRestaurantBooking, clearPendingRestaurantBooking, setPendingOrder, clearPendingOrder, saveFlightBooking, confirmFlightBooking, saveRestaurantBooking, getActiveRestaurantBookings, markRestaurantBookingCancelled, setLinkConnectPending, } from '../services/supabase.js';
 import { filterVenuesByMealPeriod, filterSlotsByMealPeriod, mealPeriodLabel, normalizeMealPeriod, parseMealPeriodFromText, } from '../utils/restaurantTimeFilter.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
@@ -1173,6 +1173,7 @@ async function executeTool(toolName, input, user, ctx) {
                 message: 'Could not start Link connection. Try again in a moment.',
             });
         }
+        await setLinkConnectPending(user.id);
         return JSON.stringify({
             verification_url: login.verification_url,
             phrase: login.phrase,

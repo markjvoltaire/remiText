@@ -62,6 +62,7 @@ import {
   saveRestaurantBooking,
   getActiveRestaurantBookings,
   markRestaurantBookingCancelled,
+  setLinkConnectPending,
 } from '../services/supabase.js';
 import {
   filterVenuesByMealPeriod,
@@ -1445,6 +1446,8 @@ async function executeTool(
         message: 'Could not start Link connection. Try again in a moment.',
       });
     }
+
+    await setLinkConnectPending(user.id);
 
     return JSON.stringify({
       verification_url: login.verification_url,

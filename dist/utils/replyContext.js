@@ -190,6 +190,17 @@ export function augmentBookRestaurantCommand(text, user, history) {
 }
 const RESTAURANT_CONFIRM_YES = /^(yes|yep|yeah|y|sure|ok|okay|confirm|confirmed|do it|book it|go ahead|sounds good|let's do it|lets do it)\b/i;
 const RESTAURANT_CONFIRM_NO = /^(no|nope|nah|not yet|wait|stop|cancel|nevermind|never mind)\b/i;
+const LINK_CONNECT_APPROVAL = /^(done|approved|i approved|connected|all set|finished|complete|completed|yes|yep|yeah|ok|okay)\b/i;
+/** User finished Link app approval after link_connect sent a verification URL. */
+export function augmentLinkConnectApproval(text, user) {
+    if (!user.link_connect_started_at || user.link_connected_at)
+        return text;
+    const trimmed = text.trim();
+    if (!LINK_CONNECT_APPROVAL.test(trimmed) && !/\b(done|approved|connected|finished)\b/i.test(trimmed)) {
+        return text;
+    }
+    return `${text}\n\n[Context: User is confirming they approved Stripe Link in the app. Call link_auth_status with poll_until_authenticated true (max_attempts 12). On success, tell them Link is connected. Do not call link_connect again.]`;
+}
 /** After a confirmation prompt, user said yes → book with confirm=true. */
 export function augmentRestaurantBookingYes(text, user) {
     const pending = user.pending_restaurant_booking;
