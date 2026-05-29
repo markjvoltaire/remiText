@@ -19,6 +19,7 @@ import { stripMarkdown } from '../utils/stripMarkdown.js';
 import {
   augmentBookRestaurantCommand,
   augmentRestaurantBookingYes,
+  augmentFlightLegSelection,
   augmentUserMessageWithReplyContext,
   augmentUserMessageWithSelection,
   inferPreviewKind,
@@ -96,6 +97,12 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   if (confirmAugmented !== agentInput) {
     console.log('[msg] restaurant booking confirmation augmented');
     agentInput = confirmAugmented;
+  }
+
+  const flightLegAugmented = augmentFlightLegSelection(agentInput, user);
+  if (flightLegAugmented !== agentInput) {
+    console.log('[msg] flight leg selection augmented');
+    agentInput = flightLegAugmented;
   }
 
   const replyTarget = await resolveInboundReplyTarget(space.id, id, text, message);

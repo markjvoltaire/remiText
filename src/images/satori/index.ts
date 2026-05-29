@@ -13,11 +13,12 @@ export { RestaurantCard } from './templates/RestaurantCard.js';
 export {
   flightCardInputFromHeldOrder,
   flightCardInputFromOffer,
+  flightCardInputFromLeg,
 } from './fromDuffel.js';
 export { restaurantCardInputFromVenue } from './fromResy.js';
 
 export type PreviewCardRef = {
-  kind: 'restaurant' | 'flight';
+  kind: 'restaurant' | 'flight' | 'flight_outbound' | 'flight_return';
   optionIndex: number;
   entityId: string;
   label: string;

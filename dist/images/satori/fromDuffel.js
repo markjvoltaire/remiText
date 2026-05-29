@@ -72,6 +72,27 @@ export function flightCardInputFromHeldOrder(order, formattedPrice) {
     };
 }
 /**
+ * Build a `FlightCardInput` from a single leg (partial offer) in the
+ * leg-by-leg flow. Shows that leg's indicative price; the firm total comes
+ * later from the combined fare.
+ */
+export function flightCardInputFromLeg(leg, formattedPrice) {
+    return {
+        airline: leg.airline,
+        logoUrl: leg.marketing_carrier_logo_lockup_url,
+        origin: leg.origin,
+        destination: leg.destination,
+        departureTime: formatHHMM(leg.departing_at),
+        arrivalTime: formatHHMM(leg.arriving_at),
+        price: formattedPrice,
+        duration: durationBetween(leg.departing_at, leg.arriving_at),
+        stops: leg.stops,
+        date: formatDisplayDate(leg.departure_date),
+        cabinClass: 'Economy',
+        flightNumber: leg.flight_number,
+    };
+}
+/**
  * Build a `FlightCardInput` from a search-result `FlightOffer`. The outbound
  * slice is used as the canonical leg, which matches how `offersToSMS` renders
  * the option list (one line per offer keyed off slice[0]).

@@ -5,7 +5,7 @@ import { runAgentLoop, isAnthropicCapacityError } from '../ai/claude.js';
 import { advanceOnboarding, getOnboardingSession, startOnboarding, } from '../services/onboarding.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { stripMarkdown } from '../utils/stripMarkdown.js';
-import { augmentBookRestaurantCommand, augmentRestaurantBookingYes, augmentUserMessageWithReplyContext, augmentUserMessageWithSelection, inferPreviewKind, } from '../utils/replyContext.js';
+import { augmentBookRestaurantCommand, augmentRestaurantBookingYes, augmentFlightLegSelection, augmentUserMessageWithReplyContext, augmentUserMessageWithSelection, inferPreviewKind, } from '../utils/replyContext.js';
 import { sessionAssistantLog, sessionTurnAbort, sessionTurnStart } from '../utils/sessionLog.js';
 function extractText(content) {
     if (typeof content === 'string')
@@ -62,6 +62,11 @@ export async function handleMessage(space, message) {
     if (confirmAugmented !== agentInput) {
         console.log('[msg] restaurant booking confirmation augmented');
         agentInput = confirmAugmented;
+    }
+    const flightLegAugmented = augmentFlightLegSelection(agentInput, user);
+    if (flightLegAugmented !== agentInput) {
+        console.log('[msg] flight leg selection augmented');
+        agentInput = flightLegAugmented;
     }
     const replyTarget = await resolveInboundReplyTarget(space.id, id, text, message);
     if (replyTarget) {

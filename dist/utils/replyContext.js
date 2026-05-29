@@ -11,6 +11,15 @@ export function parseChildMessageId(messageId) {
     return { partIndex: Number(match[1]), parentGuid: match[2] };
 }
 export function inferPreviewKind(user, partIndex) {
+    const builder = user.flight_trip_builder;
+    if (builder) {
+        if (builder.step === 'outbound' && builder.outbound_options?.[partIndex]) {
+            return 'flight_outbound';
+        }
+        if (builder.step === 'return' && builder.return_options?.[partIndex]) {
+            return 'flight_return';
+        }
+    }
     if (user.last_restaurant_search?.venues?.[partIndex])
         return 'restaurant';
     if (user.last_flight_search?.offers?.[partIndex])
@@ -43,6 +52,20 @@ export function buildPreviewReplyContext(user, kind, partIndex) {
             'When describing the venue, you MAY use general knowledge for well-known restaurants. If you do NOT confidently know this specific venue, describe it factually using only the cuisine, neighborhood, price, and rating above — never invent specific dishes, chef names, awards, or history.',
             'Only call get_restaurant_availability when the user explicitly asks for times, availability, or says yes/sure to "Want to see times?".',
             'If they say book/reserve with a time (e.g. "book the 5:45"), call book_restaurant_table without confirm to send a confirmation SMS first — do not book until they reply yes.',
+        ].join(' ');
+    }
+    if (kind === 'flight_outbound' || kind === 'flight_return') {
+        const builder = user.flight_trip_builder;
+        const options = kind === 'flight_outbound' ? builder?.outbound_options : builder?.return_options;
+        const opt = options?.[partIndex];
+        if (!opt)
+            return null;
+        const tool = kind === 'flight_outbound' ? 'select_outbound_flight' : 'select_return_flight';
+        const legWord = kind === 'flight_outbound' ? 'departure' : 'return';
+        return [
+            `The user replied to the image for ${legWord} option ${partIndex + 1}: ${opt.airline} ${opt.flight_number} (partial_offer_id=${opt.partial_offer_id}).`,
+            `Treat this as their selected ${legWord} flight. Call ${tool} with partial_offer_id="${opt.partial_offer_id}".`,
+            'Do not ask which flight they mean and do not skip the tool call.',
         ].join(' ');
     }
     const offer = user.last_flight_search?.offers?.[partIndex];
@@ -189,4 +212,95 @@ export function augmentRestaurantBookingYes(text, user) {
         return text;
     }
     return `${text}\n\n[Context: User confirmed the pending reservation. Call book_restaurant_table with confirm=true, venue_id=${pending.venue_id}, date=${pending.date}, party_size=${pending.party_size}, time="${pending.time}".]`;
+}
+const LEG_ORDINALS = {
+    first: 0,
+    '1st': 0,
+    second: 1,
+    '2nd': 1,
+    third: 2,
+    '3rd': 2,
+    fourth: 3,
+    '4th': 3,
+    fifth: 4,
+    '5th': 4,
+};
+/** ISO departure -> "h:mm AM/PM" matching parseTimeFromUserMessage output. */
+function isoToTimeLabel(iso) {
+    const clock = iso.split('T')[1]?.slice(0, 5);
+    if (!clock)
+        return null;
+    const [hStr, minute] = clock.split(':');
+    const hour = Number.parseInt(hStr ?? '', 10);
+    if (Number.isNaN(hour))
+        return null;
+    const period = hour >= 12 ? 'PM' : 'AM';
+    const h12 = hour % 12 || 12;
+    return `${h12}:${minute} ${period}`;
+}
+/**
+ * Resolve which leg the user picked from the current options, using (in order):
+ * "cheapest"/"lowest" -> the first (cheapest-sorted) option; an explicit ordinal
+ * or number ("first", "2nd", "option 3", "2"); a unique airline-name mention; or
+ * a unique departure-time match. Returns null when the choice is ambiguous.
+ */
+function resolveLegFromText(options, text) {
+    const lower = text.toLowerCase().trim();
+    if (/\b(cheapest|lowest|least expensive)\b/.test(lower))
+        return options[0] ?? null;
+    for (const [word, idx] of Object.entries(LEG_ORDINALS)) {
+        if (new RegExp(`\\b${word}\\b`).test(lower) && options[idx])
+            return options[idx];
+    }
+    const numMatch = lower.match(/(?:option|number|#|^)\s*(\d)\b/);
+    if (numMatch) {
+        const idx = Number.parseInt(numMatch[1], 10) - 1;
+        if (idx >= 0 && options[idx])
+            return options[idx];
+    }
+    const airlineMatches = options.filter((o) => o.airline && lower.includes(o.airline.toLowerCase()));
+    if (airlineMatches.length === 1)
+        return airlineMatches[0];
+    const wanted = parseTimeFromUserMessage(text);
+    if (wanted) {
+        const timeMatches = options.filter((o) => isoToTimeLabel(o.departing_at) === wanted);
+        if (timeMatches.length === 1)
+            return timeMatches[0];
+    }
+    return null;
+}
+function stageFlightLegContext(text, kind, option) {
+    const tool = kind === 'flight_outbound' ? 'select_outbound_flight' : 'select_return_flight';
+    const legWord = kind === 'flight_outbound' ? 'departure' : 'return';
+    return `${text}\n\n[Context: User selected the ${legWord} flight ${option.airline} ${option.flight_number} (partial_offer_id=${option.partial_offer_id}). Call ${tool} with partial_offer_id="${option.partial_offer_id}". This tool call is REQUIRED — do NOT skip it, do NOT invent a summary, and do NOT show return flights or a final total yourself; use the tool's formatted field as your reply.]`;
+}
+/**
+ * Force the agent to call select_outbound_flight / select_return_flight (same
+ * class of guardrail as augmentBookRestaurantCommand) when the user picks a leg
+ * by position, airline, or time during an active round-trip build. No-op once
+ * the trip is ready_to_book.
+ */
+export function augmentFlightLegSelection(text, user) {
+    const builder = user.flight_trip_builder;
+    if (!builder)
+        return text;
+    let kind;
+    let options;
+    if (builder.step === 'outbound') {
+        kind = 'flight_outbound';
+        options = builder.outbound_options;
+    }
+    else if (builder.step === 'return') {
+        kind = 'flight_return';
+        options = builder.return_options;
+    }
+    else {
+        return text;
+    }
+    if (!options?.length)
+        return text;
+    const chosen = resolveLegFromText(options, text);
+    if (!chosen)
+        return text;
+    return stageFlightLegContext(text, kind, chosen);
 }

@@ -26,6 +26,71 @@ export interface LastFlightSearchContext {
   duffel_raw_offer_request?: Record<string, unknown>;
 }
 
+/**
+ * A single bookable leg from Duffel's multi-step (partial offer) search.
+ * Each partial offer has exactly one slice; `partial_offer_id` is combined
+ * with the other leg's id via getFaresById to produce a bookable offer.
+ */
+export interface FlightLeg {
+  partial_offer_id: string;
+  origin: string;
+  destination: string;
+  departure_date: string;
+  airline: string;
+  marketing_carrier_logo_lockup_url?: string;
+  flight_number: string;
+  departing_at: string;
+  arriving_at: string;
+  stops: number;
+  /** Raw Duffel amount for this partial offer (indicative until combined fare). */
+  amount: string;
+  currency: string;
+}
+
+/** Slim leg shape stored on the user record for the trip builder state. */
+export interface FlightLegSummary {
+  partial_offer_id: string;
+  origin: string;
+  destination: string;
+  departure_date: string;
+  airline: string;
+  flight_number: string;
+  departing_at: string;
+  arriving_at: string;
+  stops: number;
+  /** All-in price in whole currency units (already includes Remi markup). */
+  price: number;
+  currency: string;
+}
+
+export interface FlightTripBuilderParams {
+  origin: string;
+  destination: string;
+  departure_date: string;
+  return_date: string;
+  cabin_class?: 'economy' | 'premium_economy' | 'business' | 'first';
+  adult_count?: number;
+}
+
+/**
+ * State machine for leg-by-leg round-trip booking. Persisted on the user while
+ * they pick a departure, then a return, before a final combined-fare summary.
+ */
+export interface FlightTripBuilder {
+  partial_offer_request_id: string;
+  step: 'outbound' | 'return' | 'ready_to_book';
+  search_params: FlightTripBuilderParams;
+  outbound_options: FlightLegSummary[];
+  selected_outbound?: FlightLegSummary;
+  return_options?: FlightLegSummary[];
+  selected_return?: FlightLegSummary;
+  /** Bookable offer id from getFaresById once both legs are chosen. */
+  final_offer_id?: string;
+  total_amount?: string;
+  currency?: string;
+  updated_at: string;
+}
+
 export interface RestaurantSlotSummary {
   time: string;
   slot_type: string;
@@ -88,7 +153,7 @@ export interface PendingRestaurantBooking {
 /** Tracks the iMessage guid for the most recent preview-card photo stack. */
 export interface LastSentPreviewCards {
   parentMessageId: string;
-  kind: 'restaurant' | 'flight';
+  kind: 'restaurant' | 'flight' | 'flight_outbound' | 'flight_return';
   optionCount: number;
   updated_at: string;
 }
@@ -111,6 +176,8 @@ export interface UserProfile {
   pending_booking_reference?: string | null;
   created_at: string;
   last_flight_search?: LastFlightSearchContext | null;
+  /** Leg-by-leg round-trip builder state (departure -> return -> book). */
+  flight_trip_builder?: FlightTripBuilder | null;
   last_restaurant_search?: LastRestaurantSearchContext | null;
   pending_restaurant_booking?: PendingRestaurantBooking | null;
   last_sent_preview_cards?: LastSentPreviewCards | null;
