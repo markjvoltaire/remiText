@@ -19,7 +19,6 @@ import { stripMarkdown } from '../utils/stripMarkdown.js';
 import {
   augmentBookRestaurantCommand,
   augmentRestaurantBookingYes,
-  augmentFlightLegSelection,
   augmentUserMessageWithReplyContext,
   augmentUserMessageWithSelection,
   inferPreviewKind,
@@ -87,14 +86,8 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
   const history = await getConversationHistory(user.id);
   let agentInput = text;
 
-  const flightLegAugmented = augmentFlightLegSelection(text, user, history);
-  if (flightLegAugmented !== text) {
-    console.log('[msg] flight leg selection augmented');
-    agentInput = flightLegAugmented;
-  }
-
-  const bookAugmented = augmentBookRestaurantCommand(agentInput, user, history);
-  if (bookAugmented !== agentInput) {
+  const bookAugmented = augmentBookRestaurantCommand(text, user, history);
+  if (bookAugmented !== text) {
     console.log('[msg] book-restaurant intent augmented');
     agentInput = bookAugmented;
   }

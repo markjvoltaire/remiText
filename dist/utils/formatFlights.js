@@ -116,37 +116,3 @@ export function offersToSMS(offers, limit) {
     });
     return formatFlightOptionsSMS(route, flights);
 }
-function stopsLabel(stops) {
-    if (stops <= 0)
-        return 'nonstop';
-    return stops === 1 ? '1 stop' : `${stops} stops`;
-}
-/**
- * One leg's worth of options (departures OR returns) for the leg-by-leg flow.
- * Each block matches one preview card in the same order.
- */
-export function legOptionsToSMS(header, options) {
-    if (options.length === 0) {
-        return 'no flights found for that leg. want me to try another day?';
-    }
-    const lines = options.map((o, i) => {
-        const time = formatTime(extractHHMM(o.departing_at));
-        return `${i + 1}. ${o.airline} ${time} (${stopsLabel(o.stops)}) — $${o.price}`;
-    });
-    return [header, '', ...lines, '', 'which one?'].join('\n');
-}
-/** Final pre-book summary: both legs with prices plus the firm combined total. */
-export function tripSummaryToSMS(outbound, ret, formattedTotal) {
-    const outTime = formatTime(extractHHMM(outbound.departing_at));
-    const retTime = formatTime(extractHHMM(ret.departing_at));
-    return [
-        'your trip',
-        '',
-        `out: ${outbound.airline} · ${formatHumanDate(outbound.departure_date)} · ${outTime} — $${outbound.price}`,
-        `back: ${ret.airline} · ${formatHumanDate(ret.departure_date)} · ${retTime} — $${ret.price}`,
-        '',
-        `total: ${formattedTotal}`,
-        '',
-        'reply HOLD or BOOK',
-    ].join('\n');
-}

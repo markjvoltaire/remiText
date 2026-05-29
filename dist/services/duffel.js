@@ -35,10 +35,6 @@ if (duffelMode === 'live' && duffelApiKey.startsWith('duffel_test_')) {
     console.warn('[duffel] DUFFEL_ENV=live but token looks like test — use DUFFEL_API_KEY_PROD');
 }
 const duffel = new Duffel({ token: duffelApiKey });
-/** Max bookable offers kept after sorting the full Duffel result set. */
-const SEARCH_RESULT_LIMIT = Math.max(5, Math.min(50, Number.parseInt(process.env.REMI_FLIGHT_SEARCH_LIMIT ?? '20', 10) || 20));
-/** Max legs surfaced per step (departures / returns) in the leg-by-leg flow. */
-const FLIGHT_LEG_LIMIT = Math.max(1, Math.min(8, Number.parseInt(process.env.REMI_FLIGHT_LEG_LIMIT ?? '5', 10) || 5));
 /** Clone Duffel `data` payloads for JSONB storage / logs without mutation surprises. */
 export function serializeDuffelData(data) {
     return JSON.parse(JSON.stringify(data));
@@ -97,135 +93,34 @@ export async function searchFlights(params) {
     });
     const rawOfferRequest = serializeDuffelData(data);
     logDuffelPayload('POST /air/offer_requests data', rawOfferRequest);
-    // Sort the FULL offer list by all-in price BEFORE trimming, so the cheapest
-    // bookable fares are surfaced even when Duffel returns them out of order.
-    const mapped = sortOffersByAllInPrice((data.offers ?? []).map((o) => mapDuffelOffer(o, params.departure_date))).slice(0, SEARCH_RESULT_LIMIT);
-    for (const offer of mapped) {
+    const offers = (data.offers ?? []).slice(0, 5);
+    const mapped = offers.map((o) => {
+        const offer = {
+            id: o.id,
+            total_amount: o.total_amount,
+            total_currency: o.total_currency,
+            expires_at: o.expires_at,
+            slices: o.slices.map((s) => ({
+                origin: s.origin.iata_code ?? '',
+                destination: s.destination.iata_code ?? '',
+                departure_date: s.segments[0]?.departing_at?.split('T')[0] ?? params.departure_date,
+                segments: s.segments.map((seg) => ({
+                    departing_at: seg.departing_at,
+                    arriving_at: seg.arriving_at,
+                    marketing_carrier_name: seg.marketing_carrier.name,
+                    marketing_carrier_logo_lockup_url: seg.marketing_carrier.logo_lockup_url ?? undefined,
+                    flight_number: `${seg.marketing_carrier.iata_code}${seg.marketing_carrier_flight_number}`,
+                    origin: { iata_code: seg.origin.iata_code ?? '' },
+                    destination: { iata_code: seg.destination.iata_code ?? '' },
+                })),
+            })),
+        };
         logPriceBreakdown('search', computeAllInPrice(offer.total_amount, offer.total_currency), {
             offer_id: offer.id,
         });
-    }
+        return offer;
+    });
     return { offers: mapped, rawOfferRequest };
-}
-/** Map a Duffel offer (any slice count) into the internal `FlightOffer` shape. */
-function mapDuffelOffer(o, fallbackDate) {
-    return {
-        id: o.id,
-        total_amount: o.total_amount,
-        total_currency: o.total_currency,
-        expires_at: o.expires_at ?? '',
-        slices: o.slices.map((s) => ({
-            origin: s.origin.iata_code ?? '',
-            destination: s.destination.iata_code ?? '',
-            departure_date: s.segments[0]?.departing_at?.split('T')[0] ?? fallbackDate,
-            segments: s.segments.map((seg) => ({
-                departing_at: seg.departing_at,
-                arriving_at: seg.arriving_at,
-                marketing_carrier_name: seg.marketing_carrier.name,
-                marketing_carrier_logo_lockup_url: seg.marketing_carrier.logo_lockup_url ?? undefined,
-                flight_number: `${seg.marketing_carrier.iata_code}${seg.marketing_carrier_flight_number}`,
-                origin: { iata_code: seg.origin.iata_code ?? '' },
-                destination: { iata_code: seg.destination.iata_code ?? '' },
-            })),
-        })),
-    };
-}
-/** Cheapest-first by all-in charge cents (includes Remi markup). */
-function sortOffersByAllInPrice(offers) {
-    return [...offers].sort((a, b) => computeAllInPrice(a.total_amount, a.total_currency).chargeAmountCents -
-        computeAllInPrice(b.total_amount, b.total_currency).chargeAmountCents);
-}
-/** Map a single-slice partial offer into a `FlightLeg`, with fallback date. */
-function mapPartialOfferToLeg(o, fallbackDate) {
-    const slice = o.slices[0];
-    if (!slice)
-        return null;
-    const segments = slice.segments;
-    const first = segments[0];
-    const last = segments[segments.length - 1];
-    if (!first || !last)
-        return null;
-    return {
-        partial_offer_id: o.id,
-        origin: slice.origin.iata_code ?? first.origin.iata_code ?? '',
-        destination: slice.destination.iata_code ?? last.destination.iata_code ?? '',
-        departure_date: first.departing_at?.split('T')[0] ?? fallbackDate,
-        airline: first.marketing_carrier.name,
-        marketing_carrier_logo_lockup_url: first.marketing_carrier.logo_lockup_url ?? undefined,
-        flight_number: `${first.marketing_carrier.iata_code}${first.marketing_carrier_flight_number}`,
-        departing_at: first.departing_at,
-        arriving_at: last.arriving_at,
-        stops: Math.max(0, segments.length - 1),
-        amount: o.total_amount,
-        currency: o.total_currency,
-    };
-}
-/** Cheapest-first legs by all-in charge cents, then trim to the leg limit. */
-function surfaceLegs(legs) {
-    return [...legs]
-        .sort((a, b) => computeAllInPrice(a.amount, a.currency).chargeAmountCents -
-        computeAllInPrice(b.amount, b.currency).chargeAmountCents)
-        .slice(0, FLIGHT_LEG_LIMIT);
-}
-/**
- * Create a multi-step (partial offer) round-trip search. Returns the
- * partial offer request id plus the cheapest outbound legs (slice 0). The
- * caller stores the request id and later fetches return options keyed off the
- * selected outbound partial offer id.
- */
-export async function createPartialSearch(params) {
-    const { data } = await duffel.partialOfferRequests.create({
-        slices: [
-            {
-                origin: params.origin,
-                destination: params.destination,
-                departure_date: params.departure_date,
-                arrival_time: null,
-                departure_time: null,
-            },
-            {
-                origin: params.destination,
-                destination: params.origin,
-                departure_date: params.return_date,
-                arrival_time: null,
-                departure_time: null,
-            },
-        ],
-        passengers: Array.from({ length: params.adult_count ?? 1 }, () => ({ type: 'adult' })),
-        cabin_class: params.cabin_class ?? 'economy',
-    });
-    logDuffelPayload('POST /air/partial_offer_requests data', serializeDuffelData(data));
-    const legs = (data.offers ?? [])
-        .map((o) => mapPartialOfferToLeg(o, params.departure_date))
-        .filter((l) => l !== null);
-    return {
-        partialOfferRequestId: data.id,
-        outboundLegs: surfaceLegs(legs),
-    };
-}
-/**
- * Fetch return legs (slice 1) for a previously created partial search, keyed
- * off the selected outbound partial offer id.
- */
-export async function getReturnOptions(partialOfferRequestId, selectedOutboundId, fallbackDate) {
-    const { data } = await duffel.partialOfferRequests.get(partialOfferRequestId, {
-        'selected_partial_offer[]': [selectedOutboundId],
-    });
-    const legs = (data.offers ?? [])
-        .map((o) => mapPartialOfferToLeg(o, fallbackDate))
-        .filter((l) => l !== null);
-    return surfaceLegs(legs);
-}
-/**
- * Combine the selected outbound + return partial offers into bookable full
- * offers (two slices). The cheapest is what we hand to the existing book path.
- */
-export async function getCombinedFare(partialOfferRequestId, selectedPartialOfferIds, fallbackDate) {
-    const { data } = await duffel.partialOfferRequests.getFaresById(partialOfferRequestId, {
-        'selected_partial_offer[]': selectedPartialOfferIds,
-    });
-    logDuffelPayload(`GET /air/partial_offer_requests/${partialOfferRequestId}/fares data`, serializeDuffelData(data));
-    return sortOffersByAllInPrice((data.offers ?? []).map((o) => mapDuffelOffer(o, fallbackDate)));
 }
 async function fetchOfferDetails(offerId) {
     const offer = await duffel.offers.get(offerId);

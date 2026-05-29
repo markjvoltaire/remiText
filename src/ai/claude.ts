@@ -8,9 +8,6 @@ import Anthropic, {
 import { tools } from './tools.js';
 import {
   searchFlights,
-  createPartialSearch,
-  getReturnOptions,
-  getCombinedFare,
   holdOrder,
   bookOrderInstant,
   getOfferPricing,
@@ -22,15 +19,8 @@ import {
   offersToSMS,
   formatHeldOrderConfirmationSMS,
   sortFlightOffersByPrice,
-  legOptionsToSMS,
-  tripSummaryToSMS,
 } from '../utils/formatFlights.js';
-import {
-  summarizeOffersForContext,
-  formatLastSearchForPrompt,
-  formatFlightTripBuilderForPrompt,
-} from '../utils/flightSearchContext.js';
-import { formatHumanDate } from '../utils/smsFormat.js';
+import { summarizeOffersForContext, formatLastSearchForPrompt } from '../utils/flightSearchContext.js';
 import {
   formatLastRestaurantSearchForPrompt,
   formatPendingRestaurantBookingForPrompt,
@@ -62,8 +52,6 @@ import { computeAllInPrice, formatMoneyFromCents, logPriceBreakdown } from '../u
 import {
   setLastFlightSearch,
   clearLastFlightSearch,
-  setFlightTripBuilder,
-  clearFlightTripBuilder,
   setLastRestaurantSearch,
   setPendingRestaurantBooking,
   clearPendingRestaurantBooking,
@@ -110,7 +98,6 @@ import {
   generateFlightCardImage,
   flightCardInputFromHeldOrder,
   flightCardInputFromOffer,
-  flightCardInputFromLeg,
   generateRestaurantCardImage,
   restaurantCardInputFromVenue,
   type PreviewCardImage,
@@ -119,10 +106,7 @@ import type {
   ConversationMessage,
   UserProfile,
   HeldOrder,
-  FlightLeg,
-  FlightLegSummary,
   FlightOffer,
-  FlightTripBuilder,
   PendingRestaurantBooking,
   RestaurantVenue,
 } from '../types.js';
@@ -140,24 +124,6 @@ function surfacedSearchOffers(offers: FlightOffer[]): FlightOffer[] {
   const sorted = sortFlightOffersByPrice(offers);
   if (SEARCH_PREVIEW_CARD_LIMIT <= 0) return sorted;
   return sorted.slice(0, SEARCH_PREVIEW_CARD_LIMIT);
-}
-
-/** Convert a bookable leg into the slim, all-in-priced shape we persist. */
-function legToSummary(leg: FlightLeg): FlightLegSummary {
-  const allIn = computeAllInPrice(leg.amount, leg.currency);
-  return {
-    partial_offer_id: leg.partial_offer_id,
-    origin: leg.origin,
-    destination: leg.destination,
-    departure_date: leg.departure_date,
-    airline: leg.airline,
-    flight_number: leg.flight_number,
-    departing_at: leg.departing_at,
-    arriving_at: leg.arriving_at,
-    stops: leg.stops,
-    price: Math.round(allIn.chargeAmountCents / 100),
-    currency: allIn.currency,
-  };
 }
 
 /** Same venues as SMS copy and preview cards (max 4). */
@@ -277,12 +243,7 @@ Rules:
 - When get_restaurant_availability returns "formatted", use it verbatim — it is already curated concierge copy. Do not add inventory, headers, or a second CTA.
 - Always resolve relative dates (e.g. "Friday", "tonight", "this Saturday") before calling search_flights or search_restaurants.
 - When the user says night, dinner, evening, lunch, brunch, or afternoon, pass meal_period on search_restaurants (night/dinner/evening → "night"). Dinner/night slots start at 5pm — never surface 3pm for "Friday night".
-- Decide whether the user wants a one-way or round-trip flight. ONE-WAY (no return date) → search_flights. ROUND TRIP (origin + destination + departure_date + return_date) → ALWAYS start_round_trip_search; never use search_flights for a round trip. Collect both dates before starting.
-- Round-trip is leg-by-leg: start_round_trip_search returns DEPARTURE options only — show those and ask the user to pick a departure. Never list, mention, or guess return flights before the user has picked a departure.
-- After the user picks a departure, call select_outbound_flight (partial_offer_id from the outbound options). It returns the RETURN options — show those and ask them to pick a return.
-- After the user picks a return, call select_return_flight (partial_offer_id from the return options). It returns the final trip summary with the firm total and a final_offer_id. Only AFTER this summary may you mention or ask HOLD or BOOK.
-- Never say HOLD/BOOK, hold_flight, or book_flight for a round trip until select_return_flight has returned a summary. Then hold_flight / book_flight use the final_offer_id exactly as for one-way.
-- For start_round_trip_search / select_outbound_flight / select_return_flight, use the tool's "formatted" field verbatim — each option block matches one preview card (same count, cheapest-first). Do not reorder, shorten, or merge legs.
+- Decide whether the user wants a one-way or round-trip flight. If round-trip, collect both departure_date and return_date before calling search_flights.
 - If pending flight options are listed in context below, use them: when the user picks an airline or says first/second/third/fourth/fifth (by position), pick the matching offer_id. Do not ask for dates again if they already gave them or if those options already reflect the trip.
 - If the user's message includes [Context: ...] indicating they replied to a specific preview image, treat that option as their selection — do not ask "which one?"
 - If pending restaurant options are listed in context below, use them ONLY for venue selection (when the user picks by name, position, or image reply). If the user's current message asks for a different cuisine, neighborhood, date, party size, or city than the cached search params, you MUST call search_restaurants again with the new parameters — do NOT relabel cached venues as a different cuisine.
@@ -498,54 +459,6 @@ async function attachSearchPreviewCardsSafely(
   }
 }
 
-async function attachFlightLegCardsSafely(
-  ctx: AgentSessionContext,
-  legs: FlightLeg[],
-  kind: 'flight_outbound' | 'flight_return',
-  tag: string,
-): Promise<void> {
-  if (SEARCH_PREVIEW_CARD_LIMIT === 0 || legs.length === 0) return;
-
-  try {
-    const images: Array<Awaited<ReturnType<typeof generateFlightCardImage>>> = [];
-    for (const [index, leg] of legs.entries()) {
-      const allIn = computeAllInPrice(leg.amount, leg.currency);
-      const price = formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency);
-      const input = flightCardInputFromLeg(leg, price);
-      const img = await generateFlightCardImage({
-        ...input,
-        optionLabel: `Option ${index + 1}`,
-      });
-      images.push(img);
-    }
-
-    let attached = 0;
-    for (const [index, img] of images.entries()) {
-      if (img) {
-        const leg = legs[index];
-        ctx.attachments.push({
-          ...img,
-          ref: leg
-            ? {
-                kind,
-                optionIndex: index,
-                entityId: leg.partial_offer_id,
-                label: `${leg.airline} ${leg.flight_number}`.trim(),
-              }
-            : undefined,
-        });
-        attached += 1;
-      }
-    }
-    if (attached > 0) {
-      console.log(`[flightCardImage] attached ${attached} ${kind} preview(s) for ${tag}`);
-    }
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[flightCardImage] ${kind} preview skipped for ${tag}: ${msg}`);
-  }
-}
-
 async function executeTool(
   toolName: string,
   input: ToolInput,
@@ -579,216 +492,6 @@ async function executeTool(
       `search:${input.origin}-${input.destination}`,
     );
     return JSON.stringify({ formatted: offersToSMS(surfaced), offers: surfaced });
-  }
-
-  if (toolName === 'start_round_trip_search') {
-    const origin = input.origin as string;
-    const destination = input.destination as string;
-    const departure_date = input.departure_date as string;
-    const return_date = input.return_date as string;
-    const cabin_class =
-      (input.cabin_class as FlightTripBuilder['search_params']['cabin_class']) || undefined;
-    const adult_count = (input.adult_count as number | undefined) || undefined;
-
-    const { partialOfferRequestId, outboundLegs } = await createPartialSearch({
-      origin,
-      destination,
-      departure_date,
-      return_date,
-      cabin_class,
-      adult_count,
-    });
-
-    if (outboundLegs.length === 0) {
-      await clearFlightTripBuilder(user.id);
-      return JSON.stringify({
-        error: true,
-        message:
-          'No departing flights found for those dates. Ask the user to try different dates or airports.',
-      });
-    }
-
-    const outboundSummaries = outboundLegs.map(legToSummary);
-    await setFlightTripBuilder(user.id, {
-      partial_offer_request_id: partialOfferRequestId,
-      step: 'outbound',
-      search_params: { origin, destination, departure_date, return_date, cabin_class, adult_count },
-      outbound_options: outboundSummaries,
-      updated_at: new Date().toISOString(),
-    });
-
-    await attachFlightLegCardsSafely(
-      ctx,
-      outboundLegs,
-      'flight_outbound',
-      `outbound:${origin}-${destination}`,
-    );
-
-    const header = `departures ${formatHumanDate(departure_date)} · ${origin} → ${destination}`;
-    return JSON.stringify({
-      formatted: legOptionsToSMS(header, outboundSummaries),
-      step: 'outbound',
-      options: outboundSummaries,
-    });
-  }
-
-  if (toolName === 'select_outbound_flight') {
-    const builder = user.flight_trip_builder;
-    if (!builder?.partial_offer_request_id) {
-      return JSON.stringify({
-        error: true,
-        message:
-          'No active round-trip search. Call start_round_trip_search first, then let the user pick a departure.',
-      });
-    }
-
-    const partialId = input.partial_offer_id as string;
-    const chosen = builder.outbound_options.find((o) => o.partial_offer_id === partialId);
-    if (!chosen) {
-      const validIds = builder.outbound_options
-        .map((o) => `${o.airline}: ${o.partial_offer_id}`)
-        .join('; ');
-      return JSON.stringify({
-        error: true,
-        message: `That departure is not in the current options. Valid partial_offer_ids: ${validIds}. Call select_outbound_flight with one of those — do not invent ids or restart the search unless expired.`,
-      });
-    }
-
-    let returnLegs: FlightLeg[];
-    try {
-      returnLegs = await getReturnOptions(
-        builder.partial_offer_request_id,
-        partialId,
-        builder.search_params.return_date,
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[start_round_trip_search] getReturnOptions failed: ${msg}`);
-      await clearFlightTripBuilder(user.id);
-      return JSON.stringify({
-        error: true,
-        message:
-          'That search expired. Call start_round_trip_search again with the same route and dates.',
-      });
-    }
-
-    if (returnLegs.length === 0) {
-      return JSON.stringify({
-        error: true,
-        message:
-          'No return flights for that departure. Ask the user to pick a different departure from the list.',
-      });
-    }
-
-    const returnSummaries = returnLegs.map(legToSummary);
-    await setFlightTripBuilder(user.id, {
-      ...builder,
-      step: 'return',
-      selected_outbound: chosen,
-      return_options: returnSummaries,
-      selected_return: undefined,
-      final_offer_id: undefined,
-      total_amount: undefined,
-      currency: undefined,
-      updated_at: new Date().toISOString(),
-    });
-
-    await attachFlightLegCardsSafely(
-      ctx,
-      returnLegs,
-      'flight_return',
-      `return:${builder.search_params.destination}-${builder.search_params.origin}`,
-    );
-
-    const header = `returns ${formatHumanDate(builder.search_params.return_date)} · ${builder.search_params.destination} → ${builder.search_params.origin}`;
-    return JSON.stringify({
-      formatted: legOptionsToSMS(header, returnSummaries),
-      step: 'return',
-      options: returnSummaries,
-    });
-  }
-
-  if (toolName === 'select_return_flight') {
-    const builder = user.flight_trip_builder;
-    if (!builder?.partial_offer_request_id || !builder.selected_outbound || !builder.return_options) {
-      return JSON.stringify({
-        error: true,
-        message:
-          'No departure selected yet. Have the user pick a departure (select_outbound_flight) before a return.',
-      });
-    }
-
-    const partialId = input.partial_offer_id as string;
-    const chosenReturn = builder.return_options.find((o) => o.partial_offer_id === partialId);
-    if (!chosenReturn) {
-      const validIds = builder.return_options
-        .map((o) => `${o.airline}: ${o.partial_offer_id}`)
-        .join('; ');
-      return JSON.stringify({
-        error: true,
-        message: `That return is not in the current options. Valid partial_offer_ids: ${validIds}. Call select_return_flight with one of those — do not invent ids.`,
-      });
-    }
-
-    let combined: FlightOffer[];
-    try {
-      combined = await getCombinedFare(
-        builder.partial_offer_request_id,
-        [builder.selected_outbound.partial_offer_id, partialId],
-        builder.search_params.return_date,
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[select_return_flight] getCombinedFare failed: ${msg}`);
-      await clearFlightTripBuilder(user.id);
-      return JSON.stringify({
-        error: true,
-        message:
-          'That search expired before pricing. Call start_round_trip_search again with the same route and dates.',
-      });
-    }
-
-    const finalOffer = combined[0];
-    if (!finalOffer) {
-      return JSON.stringify({
-        error: true,
-        message:
-          'Could not price that combination. Ask the user to pick a different return flight.',
-      });
-    }
-
-    const allIn = computeAllInPrice(finalOffer.total_amount, finalOffer.total_currency);
-    const total = formatMoneyFromCents(allIn.chargeAmountCents, allIn.currency);
-    logPriceBreakdown('round_trip_summary', allIn, { offer_id: finalOffer.id });
-
-    // Store the firm offer in last_flight_search so the existing hold/book path
-    // (offer-id allowlist + stale refresh) works unchanged.
-    await setLastFlightSearch(user.id, {
-      offers: summarizeOffersForContext([finalOffer]),
-      updated_at: new Date().toISOString(),
-      search_params: {
-        origin: builder.search_params.origin,
-        destination: builder.search_params.destination,
-        departure_date: builder.search_params.departure_date,
-        return_date: builder.search_params.return_date,
-      },
-    });
-
-    await setFlightTripBuilder(user.id, {
-      ...builder,
-      step: 'ready_to_book',
-      selected_return: chosenReturn,
-      final_offer_id: finalOffer.id,
-      total_amount: finalOffer.total_amount,
-      currency: finalOffer.total_currency,
-      updated_at: new Date().toISOString(),
-    });
-
-    return JSON.stringify({
-      formatted: tripSummaryToSMS(builder.selected_outbound, chosenReturn, total),
-      step: 'ready_to_book',
-      final_offer_id: finalOffer.id,
-    });
   }
 
   if (toolName === 'hold_flight') {
@@ -1093,7 +796,6 @@ async function executeTool(
     });
     await clearLastFlightSearch(user.id);
     await clearPendingOrder(user.id);
-    await clearFlightTripBuilder(user.id);
 
     const formattedPrice = formatMoneyFromCents(amountInCents, currency);
     await attachFlightCardSafely(ctx, order, formattedPrice, `book:${order.booking_reference}`);
@@ -1170,7 +872,6 @@ async function executeTool(
 
     await clearLastFlightSearch(user.id);
     await clearPendingOrder(user.id);
-    await clearFlightTripBuilder(user.id);
     return JSON.stringify({ success: true, message: 'Payment processed and booking confirmed.' });
   }
 
@@ -1801,7 +1502,6 @@ export async function runAgentLoop(
   user: UserProfile,
 ): Promise<AgentLoopResult> {
   const flightPending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
-  const flightTripBuilder = formatFlightTripBuilderForPrompt(user.flight_trip_builder ?? undefined);
   const restaurantPending = formatLastRestaurantSearchForPrompt(
     user.last_restaurant_search ?? undefined,
   );
@@ -1813,13 +1513,9 @@ export async function runAgentLoop(
     : user.name
       ? `User profile: name=${user.name}.`
       : '';
-  const contextParts = [
-    profileContext,
-    flightTripBuilder,
-    flightPending,
-    restaurantPending,
-    restaurantConfirmPending,
-  ].filter(Boolean);
+  const contextParts = [profileContext, flightPending, restaurantPending, restaurantConfirmPending].filter(
+    Boolean,
+  );
   const todayISO = new Date().toISOString().split('T')[0]!;
   const resolved = resolveRelativeDates(userMessage, todayISO);
   const systemBase = contextParts.length ? `${SYSTEM_PROMPT}\n\n${contextParts.join('\n\n')}` : SYSTEM_PROMPT;

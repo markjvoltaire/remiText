@@ -2,7 +2,6 @@ import { createClient } from '@supabase/supabase-js';
 import type {
   ConversationMessage,
   FlightBookingStatus,
-  FlightTripBuilder,
   LastFlightSearchContext,
   LastRestaurantSearchContext,
   LastSentPreviewCards,
@@ -137,31 +136,6 @@ export async function setLastFlightSearch(
 
 export async function clearLastFlightSearch(userId: string): Promise<void> {
   await supabase.from('users').update({ last_flight_search: null }).eq('id', userId);
-}
-
-export async function setFlightTripBuilder(
-  userId: string,
-  builder: FlightTripBuilder,
-): Promise<boolean> {
-  const { error } = await supabase
-    .from('users')
-    .update({ flight_trip_builder: builder })
-    .eq('id', userId);
-  if (error) {
-    console.warn(`[supabase] setFlightTripBuilder failed user=${userId}:`, error.message);
-    return false;
-  }
-  return true;
-}
-
-export async function clearFlightTripBuilder(userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('users')
-    .update({ flight_trip_builder: null })
-    .eq('id', userId);
-  if (error) {
-    console.warn(`[supabase] clearFlightTripBuilder failed user=${userId}:`, error.message);
-  }
 }
 
 export async function setLastRestaurantSearch(

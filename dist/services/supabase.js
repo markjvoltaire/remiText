@@ -94,26 +94,6 @@ export async function setLastFlightSearch(userId, ctx) {
 export async function clearLastFlightSearch(userId) {
     await supabase.from('users').update({ last_flight_search: null }).eq('id', userId);
 }
-export async function setFlightTripBuilder(userId, builder) {
-    const { error } = await supabase
-        .from('users')
-        .update({ flight_trip_builder: builder })
-        .eq('id', userId);
-    if (error) {
-        console.warn(`[supabase] setFlightTripBuilder failed user=${userId}:`, error.message);
-        return false;
-    }
-    return true;
-}
-export async function clearFlightTripBuilder(userId) {
-    const { error } = await supabase
-        .from('users')
-        .update({ flight_trip_builder: null })
-        .eq('id', userId);
-    if (error) {
-        console.warn(`[supabase] clearFlightTripBuilder failed user=${userId}:`, error.message);
-    }
-}
 export async function setLastRestaurantSearch(userId, ctx) {
     const { error } = await supabase.from('users').update({ last_restaurant_search: ctx }).eq('id', userId);
     if (error) {

@@ -1,7 +1,7 @@
 export const tools = [
     {
         name: 'search_flights',
-        description: 'Search ONE-WAY flights (no return date). Returns offers sorted by price. For round trips (a departure AND a return date), use start_round_trip_search instead. Always call this before presenting one-way options.',
+        description: 'Search for available flights. Returns up to 5 offers sorted by price. Always call this before presenting options to the user.',
         input_schema: {
             type: 'object',
             properties: {
@@ -17,6 +17,10 @@ export const tools = [
                     type: 'string',
                     description: 'Departure date in YYYY-MM-DD format',
                 },
+                return_date: {
+                    type: 'string',
+                    description: 'Optional return date in YYYY-MM-DD format. If provided, search a round trip (2 slices). If omitted, search one-way.',
+                },
                 cabin_class: {
                     type: 'string',
                     enum: ['economy', 'premium_economy', 'business', 'first'],
@@ -28,69 +32,6 @@ export const tools = [
                 },
             },
             required: ['origin', 'destination', 'departure_date'],
-        },
-    },
-    {
-        name: 'start_round_trip_search',
-        description: 'Start a leg-by-leg ROUND-TRIP search (when the user gives an origin, destination, departure date AND return date). Returns the cheapest DEPARTURE options only (with preview cards). The user picks a departure first; do NOT show or mention return flights yet. After they pick, call select_outbound_flight.',
-        input_schema: {
-            type: 'object',
-            properties: {
-                origin: {
-                    type: 'string',
-                    description: 'IATA airport code for the trip origin, e.g. "MIA"',
-                },
-                destination: {
-                    type: 'string',
-                    description: 'IATA airport code for the trip destination, e.g. "LAS"',
-                },
-                departure_date: {
-                    type: 'string',
-                    description: 'Outbound (departure) date in YYYY-MM-DD format',
-                },
-                return_date: {
-                    type: 'string',
-                    description: 'Return date in YYYY-MM-DD format',
-                },
-                cabin_class: {
-                    type: 'string',
-                    enum: ['economy', 'premium_economy', 'business', 'first'],
-                    description: 'Cabin class. Defaults to economy.',
-                },
-                adult_count: {
-                    type: 'number',
-                    description: 'Number of adult passengers. Defaults to 1.',
-                },
-            },
-            required: ['origin', 'destination', 'departure_date', 'return_date'],
-        },
-    },
-    {
-        name: 'select_outbound_flight',
-        description: 'Record the DEPARTURE the user picked in a round-trip search, then fetch and return the matching RETURN options (with preview cards). Pass the partial_offer_id of the chosen departure from the current departure options. Only call after start_round_trip_search. The user then picks a return; after that call select_return_flight.',
-        input_schema: {
-            type: 'object',
-            properties: {
-                partial_offer_id: {
-                    type: 'string',
-                    description: 'The partial_offer_id of the departure the user chose, from the current outbound options.',
-                },
-            },
-            required: ['partial_offer_id'],
-        },
-    },
-    {
-        name: 'select_return_flight',
-        description: 'Record the RETURN the user picked and price the full round trip. Returns a final trip summary (both legs + firm total) with a bookable final_offer_id. Pass the partial_offer_id of the chosen return. Only call after select_outbound_flight. After this returns, the user can HOLD or BOOK via hold_flight / book_flight.',
-        input_schema: {
-            type: 'object',
-            properties: {
-                partial_offer_id: {
-                    type: 'string',
-                    description: 'The partial_offer_id of the return the user chose, from the current return options.',
-                },
-            },
-            required: ['partial_offer_id'],
         },
     },
     {

@@ -1,9 +1,4 @@
-import type {
-  FlightOffer,
-  FlightTripBuilder,
-  LastFlightSearchContext,
-  PendingFlightOfferSummary,
-} from '../types.js';
+import type { FlightOffer, LastFlightSearchContext, PendingFlightOfferSummary } from '../types.js';
 import { computeAllInPrice } from './pricing.js';
 
 function extractHHMM(isoDatetime: string): string {
@@ -45,41 +40,5 @@ export function formatLastSearchForPrompt(ctx: LastFlightSearchContext | null | 
     ...lines,
     'If the user names an airline, flight number, or refers to an option by position in the list (first, second, third, etc.), pick the matching row.',
     'Do not ask for departure or return dates again if the user already gave them or if the options above already reflect those dates.',
-  ].join('\n');
-}
-
-/** Active leg-by-leg round-trip builder — partial_offer_ids for select_*_flight tools. */
-export function formatFlightTripBuilderForPrompt(
-  builder: FlightTripBuilder | null | undefined,
-): string {
-  if (!builder) return '';
-
-  const lines: string[] = [];
-  if (builder.step === 'outbound' && builder.outbound_options.length > 0) {
-    lines.push('Round-trip builder — pick DEPARTURE (use select_outbound_flight with partial_offer_id):');
-    for (const [i, o] of builder.outbound_options.entries()) {
-      lines.push(
-        `${i + 1}. partial_offer_id=${o.partial_offer_id} ${o.airline} ${o.flight_number} $${o.price}`,
-      );
-    }
-  } else if (builder.step === 'return' && builder.return_options?.length) {
-    lines.push(
-      `Round-trip builder — departure locked: ${builder.selected_outbound?.airline ?? 'selected'}. Pick RETURN (use select_return_flight with partial_offer_id):`,
-    );
-    for (const [i, o] of builder.return_options.entries()) {
-      lines.push(
-        `${i + 1}. partial_offer_id=${o.partial_offer_id} ${o.airline} ${o.flight_number} $${o.price}`,
-      );
-    }
-  } else if (builder.step === 'ready_to_book' && builder.final_offer_id) {
-    lines.push(
-      `Round-trip ready to book — final_offer_id=${builder.final_offer_id} (use for hold_flight / book_flight).`,
-    );
-  }
-
-  if (lines.length === 0) return '';
-  return [
-    ...lines,
-    'Never invent partial_offer_id values — only use ids listed above.',
   ].join('\n');
 }
