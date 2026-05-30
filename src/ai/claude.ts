@@ -72,6 +72,10 @@ import {
   parseMealPeriodFromText,
   type MealPeriod,
 } from '../utils/restaurantTimeFilter.js';
+import {
+  formatLinkPendingContext,
+  isLinkWalletConnected,
+} from '../services/onboarding.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import {
@@ -302,12 +306,13 @@ Output formatting:
 - If a user's flight request is ambiguous (e.g. no origin city), ask where they are flying from or which departure airport they prefer.
 
 Payments:
-- Flight BOOK and confirm_booking require a card on file (stripe_spt_id). If missing, say payments are not set up yet and offer search/hold instead — never send signup links or websites.
-- Stripe Link wallet (link_connect): for future merchant checkout and one-time virtual cards. US Link accounts only.
+- Flight BOOK and confirm_booking require payment on file. If missing, offer search/hold instead and tell them to text "link" to connect Link — never paste signup URLs unless they ask for link/payment setup.
+- Stripe Link wallet (link_connect): for merchant checkout and one-time virtual cards. US Link accounts only.
 - If the user asks to connect Link, log in to Link, or pay on a random merchant site, use link_auth_status first, then link_connect if needed.
 - After link_connect, send the verification_url clearly and ask them to text back when approved; then call link_auth_status (or link_connect with poll on their confirmation — use link_auth_status only, one tool per turn).
 - Never paste full card numbers, CVCs, or full shipping addresses in SMS — abbreviate (brand + last4, city + zip only).
-- link_payment_methods_list / link_shipping_address_list require an authenticated Link wallet.`;
+- link_payment_methods_list / link_shipping_address_list require an authenticated Link wallet.
+- Search, restaurant discovery, holds, and recommendations work even when Link is not connected yet.`;
 
 function linkNotAvailablePayload(): string {
   return JSON.stringify({
@@ -1516,7 +1521,8 @@ export async function runAgentLoop(
     : user.name
       ? `User profile: name=${user.name}.`
       : '';
-  const contextParts = [profileContext, flightPending, restaurantPending, restaurantConfirmPending].filter(
+  const linkPending = !isLinkWalletConnected(user) ? formatLinkPendingContext(user) : '';
+  const contextParts = [profileContext, linkPending, flightPending, restaurantPending, restaurantConfirmPending].filter(
     Boolean,
   );
   const todayISO = new Date().toISOString().split('T')[0]!;

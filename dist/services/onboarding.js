@@ -212,22 +212,14 @@ const ONBOARDING_CANCEL = LINK_CANCEL;
 export async function cancelOnboarding(phone) {
     await supabase.from('onboarding_sessions').delete().eq('phone', phone);
 }
-function recentLinkReminderSent(history) {
-    return history
-        .slice(-6)
-        .some((m) => m.role === 'assistant' &&
-        (/remitexts\.co\/signup|connect Link|setup url/i.test(m.content) ||
-            /text 'link'/i.test(m.content)));
-}
-/** User finished SMS profile but has not connected Link yet. */
-export async function handleAwaitingLinkMessage(user, text, history) {
+/** Handle Link-setup SMS only. Search/booking requests fall through to the agent. */
+export async function handleAwaitingLinkMessage(user, text, _history) {
     const refreshed = await getUserByPhone(user.phone);
     const current = refreshed ?? user;
     if (isLinkWalletConnected(current)) {
         return { kind: 'completed', user: current };
     }
     const trimmed = text.trim();
-    const first = current.name.trim().split(/\s+/)[0] || 'there';
     const url = buildSignupUrl(current.phone);
     if (LINK_DONE.test(trimmed) || /\b(done|approved|connected|finished)\b/i.test(trimmed)) {
         return {
@@ -245,17 +237,14 @@ export async function handleAwaitingLinkMessage(user, text, history) {
             message: "no worries. text 'link' when you're ready to finish setup.",
         };
     }
-    if (recentLinkReminderSent(history)) {
-        return {
-            kind: 'reply',
-            message: "still need Link connected before i can search or book. text 'link' for the setup url, or 'done' after you finish.",
-        };
-    }
-    return {
-        kind: 'reply',
-        message: `hey ${first} — last step is Link (takes about a minute):\n${url}\n\n` +
-            `text 'done' when finished, or 'link' to resend.`,
-    };
+    return { kind: 'continue' };
+}
+export function formatLinkPendingContext(user) {
+    const url = buildSignupUrl(user.phone);
+    return (`Link wallet not connected yet (signup: ${url}). ` +
+        `User can search flights and restaurants and get recommendations now. ` +
+        `Only block paid flight BOOK/confirm and Link purchases until connected — then tell them to text "link" for setup. ` +
+        `Do not refuse search or discovery because Link is missing.`);
 }
 export function isOnboardingCancelMessage(text) {
     return ONBOARDING_CANCEL.test(text.trim());

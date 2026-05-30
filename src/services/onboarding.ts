@@ -266,26 +266,16 @@ export async function cancelOnboarding(phone: string): Promise<void> {
   await supabase.from('onboarding_sessions').delete().eq('phone', phone);
 }
 
-function recentLinkReminderSent(history: ConversationMessage[]): boolean {
-  return history
-    .slice(-6)
-    .some(
-      (m) =>
-        m.role === 'assistant' &&
-        (/remitexts\.co\/signup|connect Link|setup url/i.test(m.content) ||
-          /text 'link'/i.test(m.content)),
-    );
-}
-
 export type AwaitingLinkReply =
   | { kind: 'completed'; user: UserProfile }
-  | { kind: 'reply'; message: string };
+  | { kind: 'reply'; message: string }
+  | { kind: 'continue' };
 
-/** User finished SMS profile but has not connected Link yet. */
+/** Handle Link-setup SMS only. Search/booking requests fall through to the agent. */
 export async function handleAwaitingLinkMessage(
   user: UserProfile,
   text: string,
-  history: ConversationMessage[],
+  _history: ConversationMessage[],
 ): Promise<AwaitingLinkReply> {
   const refreshed = await getUserByPhone(user.phone);
   const current = refreshed ?? user;
@@ -295,7 +285,6 @@ export async function handleAwaitingLinkMessage(
   }
 
   const trimmed = text.trim();
-  const first = current.name.trim().split(/\s+/)[0] || 'there';
   const url = buildSignupUrl(current.phone);
 
   if (LINK_DONE.test(trimmed) || /\b(done|approved|connected|finished)\b/i.test(trimmed)) {
@@ -318,20 +307,17 @@ export async function handleAwaitingLinkMessage(
     };
   }
 
-  if (recentLinkReminderSent(history)) {
-    return {
-      kind: 'reply',
-      message:
-        "still need Link connected before i can search or book. text 'link' for the setup url, or 'done' after you finish.",
-    };
-  }
+  return { kind: 'continue' };
+}
 
-  return {
-    kind: 'reply',
-    message:
-      `hey ${first} — last step is Link (takes about a minute):\n${url}\n\n` +
-      `text 'done' when finished, or 'link' to resend.`,
-  };
+export function formatLinkPendingContext(user: UserProfile): string {
+  const url = buildSignupUrl(user.phone);
+  return (
+    `Link wallet not connected yet (signup: ${url}). ` +
+    `User can search flights and restaurants and get recommendations now. ` +
+    `Only block paid flight BOOK/confirm and Link purchases until connected — then tell them to text "link" for setup. ` +
+    `Do not refuse search or discovery because Link is missing.`
+  );
 }
 
 export function isOnboardingCancelMessage(text: string): boolean {

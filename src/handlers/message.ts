@@ -66,9 +66,9 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
     `[msg] id=${id} space=${space.id} sender=${contactKey} inbound_len=${text.length}`,
   );
 
-  const user = await getUserByPhone(contactKey);
+  const userRecord = await getUserByPhone(contactKey);
 
-  if (!user) {
+  if (!userRecord) {
     let session = await getOnboardingSession(contactKey);
     if (session && isOnboardingCancelMessage(text)) {
       await cancelOnboarding(session.phone);
@@ -92,24 +92,30 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
     return;
   }
 
+  let user = userRecord;
+
   if (!isLinkWalletConnected(user)) {
     const history = await getConversationHistory(user.id);
     const linkResult = await handleAwaitingLinkMessage(user, text, history);
 
-    await appendMessage(user.id, 'user', text);
-
     if (linkResult.kind === 'completed') {
-      const welcome = welcomeMessage(linkResult.user.name);
-      sessionAssistantLog(welcome);
-      await appendMessage(user.id, 'assistant', welcome);
-      await space.send(welcome);
+      user = linkResult.user;
+      if (/^(done|finished|all set|ready|approved|connected)\b/i.test(text.trim())) {
+        const welcome = welcomeMessage(user.name);
+        await appendMessage(user.id, 'user', text);
+        sessionAssistantLog(welcome);
+        await appendMessage(user.id, 'assistant', welcome);
+        await space.send(welcome);
+        return;
+      }
+    } else if (linkResult.kind === 'reply') {
+      await appendMessage(user.id, 'user', text);
+      sessionAssistantLog(linkResult.message);
+      await appendMessage(user.id, 'assistant', linkResult.message);
+      await space.send(linkResult.message);
       return;
     }
-
-    sessionAssistantLog(linkResult.message);
-    await appendMessage(user.id, 'assistant', linkResult.message);
-    await space.send(linkResult.message);
-    return;
+    // kind === 'continue' → run agent below (search, restaurants, etc.)
   }
 
   const history = await getConversationHistory(user.id);
