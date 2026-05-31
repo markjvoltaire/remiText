@@ -1,5 +1,4 @@
 import { Composio } from '@composio/core';
-import { AnthropicProvider } from '@composio/anthropic';
 let client = null;
 export function isComposioConfigured() {
     return Boolean(process.env.COMPOSIO_API_KEY?.trim());
@@ -10,10 +9,7 @@ export function getComposioClient() {
         throw new Error('COMPOSIO_API_KEY is not set');
     }
     if (!client) {
-        client = new Composio({
-            apiKey,
-            provider: new AnthropicProvider(),
-        });
+        client = new Composio({ apiKey });
     }
     return client;
 }

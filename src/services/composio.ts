@@ -1,24 +1,18 @@
 import { Composio } from '@composio/core';
-import { AnthropicProvider } from '@composio/anthropic';
 
-type ComposioClient = Composio<AnthropicProvider>;
-
-let client: ComposioClient | null = null;
+let client: Composio | null = null;
 
 export function isComposioConfigured(): boolean {
   return Boolean(process.env.COMPOSIO_API_KEY?.trim());
 }
 
-export function getComposioClient(): ComposioClient {
+export function getComposioClient(): Composio {
   const apiKey = process.env.COMPOSIO_API_KEY?.trim();
   if (!apiKey) {
     throw new Error('COMPOSIO_API_KEY is not set');
   }
   if (!client) {
-    client = new Composio({
-      apiKey,
-      provider: new AnthropicProvider(),
-    });
+    client = new Composio({ apiKey });
   }
   return client;
 }
