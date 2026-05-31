@@ -19,7 +19,7 @@ import { linkAuthStatus, linkAuthLogin, linkAuthPoll, linkPaymentMethodsList, li
 import { formatSocialDiscoveryForTool, isVagueSocialVibe, } from '../utils/formatSocialRecommendations.js';
 import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, generateRestaurantCardImage, restaurantCardInputFromVenue, } from '../images/satori/index.js';
 import { sessionModelRound, sessionToolLog } from '../utils/sessionLog.js';
-const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '5', 10) || 0));
+const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '0', 10) || 0));
 const RESTAURANT_SMS_VENUE_LIMIT = 4;
 /** Cheapest first; when preview cards are enabled, same length as image count. */
 function surfacedSearchOffers(offers) {
@@ -132,19 +132,18 @@ Do not dump every option. Surface the best recommendation, then 2–4 nearby alt
 Today's date is ${new Date().toISOString().split('T')[0]}.
 
 Rules:
-- Keep replies short. Max 3 sentences unless you are pasting tool output (flights with preview cards, or restaurant search results).
+- Keep replies short. Max 3 sentences unless you are pasting tool output (flight or restaurant search results).
 - Plain text only: no Markdown, no asterisks (*), no bold/italics markers, no backticks.
-- When search_flights returns a formatted option list, use "formatted" verbatim — every block matches one preview image (same count, cheapest-first). Never shorten flight options when preview cards are attached.
-- When search_restaurants returns "formatted", use it verbatim — every block matches one preview image (same count, same order). Do not add inventory, headers, or a second CTA.
+- When search_flights returns a formatted option list, use "formatted" verbatim — do not shorten or reformat flight options.
+- When search_restaurants returns "formatted", use it verbatim. Do not add inventory, headers, or a second CTA.
 - When get_restaurant_availability returns "formatted", use it verbatim — it is already curated concierge copy. Do not add inventory, headers, or a second CTA.
 - Always resolve relative dates (e.g. "Friday", "tonight", "this Saturday") before calling search_flights or search_restaurants.
 - When the user says night, dinner, evening, lunch, brunch, or afternoon, pass meal_period on search_restaurants (night/dinner/evening → "night"). Dinner/night slots start at 5pm — never surface 3pm for "Friday night".
 - Decide whether the user wants a one-way or round-trip flight. If round-trip, collect both departure_date and return_date before calling search_flights.
 - If pending flight options are listed in context below, use them: when the user picks an airline or says first/second/third/fourth/fifth (by position), pick the matching offer_id. Do not ask for dates again if they already gave them or if those options already reflect the trip.
-- If the user's message includes [Context: ...] indicating they replied to a specific preview image, treat that option as their selection — do not ask "which one?"
-- If pending restaurant options are listed in context below, use them ONLY for venue selection (when the user picks by name, position, or image reply). If the user's current message asks for a different cuisine, neighborhood, date, party size, or city than the cached search params, you MUST call search_restaurants again with the new parameters — do NOT relabel cached venues as a different cuisine.
-- If the user's message includes [Context: ...] indicating they replied to a specific preview image, treat that option as their selection — do not ask "which one?"
-- When the user asks "tell me more", "more info", "what's it like", "story", or "what to expect" about a specific restaurant they selected (via image reply or by name/position), DO NOT call get_restaurant_availability. Instead write a SHORT 2-3 sentence brief — cuisine, vibe, neighborhood, what to expect — using the facts in the [Context: ...] block plus general knowledge ONLY for well-known venues. Never invent dishes, chefs, awards, or history. End softly, e.g. "want to see times?"
+- If the user's message includes [Context: ...] indicating they selected a specific option (by reply or by name/position), treat that option as their selection — do not ask "which one?"
+- If pending restaurant options are listed in context below, use them ONLY for venue selection (when the user picks by name or position). If the user's current message asks for a different cuisine, neighborhood, date, party size, or city than the cached search params, you MUST call search_restaurants again with the new parameters — do NOT relabel cached venues as a different cuisine.
+- When the user asks "tell me more", "more info", "what's it like", "story", or "what to expect" about a specific restaurant they selected (by name/position), DO NOT call get_restaurant_availability. Instead write a SHORT 2-3 sentence brief — cuisine, vibe, neighborhood, what to expect — using the facts in the [Context: ...] block plus general knowledge ONLY for well-known venues. Never invent dishes, chefs, awards, or history. End softly, e.g. "want to see times?"
 - Only call get_restaurant_availability when the user asks for times, availability, or affirms a "Want to see times?" follow-up.
 - Before taking action on a specific flight, restate the exact flight (airline, time, price) and ask ONE question: "HOLD or BOOK?"
 - Restaurant booking IS LIVE via book_restaurant_table. NEVER say booking is unavailable, coming soon, or tell users to book on resy.com instead — unless the tool returns an error.
@@ -216,6 +215,8 @@ function linkToolError(result) {
     return JSON.stringify({ error: true, message });
 }
 async function attachFlightCardSafely(ctx, order, formattedPrice, tag) {
+    if (SEARCH_PREVIEW_CARD_LIMIT === 0)
+        return;
     try {
         const input = flightCardInputFromHeldOrder(order, formattedPrice);
         if (!input)
