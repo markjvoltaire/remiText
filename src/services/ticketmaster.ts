@@ -1,8 +1,10 @@
 import {
   composioResultOk,
   executeComposioTool,
+  formatComposioConnectionError,
   isComposioConfigured,
   parseComposioData,
+  TICKETMASTER_TOOLKIT_VERSION,
   type ComposioToolResult,
 } from './composio.js';
 import {
@@ -27,10 +29,22 @@ export class TicketmasterApiError extends Error {
 }
 
 function failFromResult(result: ComposioToolResult): never {
-  const msg =
+  const raw =
     (typeof result.error === 'string' && result.error) ||
     'Ticketmaster search failed. Try again in a moment.';
-  throw new TicketmasterApiError(msg);
+  throw new TicketmasterApiError(formatComposioConnectionError(raw));
+}
+
+function failFromExecuteError(err: unknown): never {
+  const raw = err instanceof Error ? err.message : String(err);
+  const cause =
+    err instanceof Error && err.cause instanceof Error
+      ? err.cause.message
+      : err instanceof Error && typeof (err as { cause?: { message?: string } }).cause === 'object'
+        ? String((err as { cause?: { message?: string } }).cause?.message ?? '')
+        : '';
+  const combined = [raw, cause].filter(Boolean).join(' — ');
+  throw new TicketmasterApiError(formatComposioConnectionError(combined));
 }
 
 export interface SearchEventsParams {
@@ -76,7 +90,14 @@ export async function searchEvents(
   if (params.segmentName?.trim()) args.segmentName = params.segmentName.trim();
   if (params.classificationName?.trim()) args.classificationName = params.classificationName.trim();
 
-  const result = await executeComposioTool('TICKETMASTER_GET_EVENTS', userId, args);
+  let result: ComposioToolResult;
+  try {
+    result = await executeComposioTool('TICKETMASTER_GET_EVENTS', userId, args, {
+      version: TICKETMASTER_TOOLKIT_VERSION,
+    });
+  } catch (err) {
+    failFromExecuteError(err);
+  }
   if (!composioResultOk(result)) failFromResult(result);
 
   const payload = parseComposioData(result);
@@ -95,9 +116,17 @@ export async function getEventDetails(
 ): Promise<{ formatted: string; event: Record<string, unknown> | null }> {
   if (!isComposioConfigured()) throw new TicketmasterNotConfiguredError();
 
-  const result = await executeComposioTool('TICKETMASTER_GET_EVENT_DETAILS', userId, {
-    id: eventId,
-  });
+  let result: ComposioToolResult;
+  try {
+    result = await executeComposioTool(
+      'TICKETMASTER_GET_EVENT_DETAILS',
+      userId,
+      { id: eventId },
+      { version: TICKETMASTER_TOOLKIT_VERSION },
+    );
+  } catch (err) {
+    failFromExecuteError(err);
+  }
   if (!composioResultOk(result)) failFromResult(result);
 
   const payload = parseComposioData(result);

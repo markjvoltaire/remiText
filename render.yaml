@@ -69,3 +69,7 @@ services:
         sync: false
       - key: COMPOSIO_API_KEY
         sync: false
+      - key: COMPOSIO_TICKETMASTER_VERSION
+        value: "20260417_00"
+      - key: COMPOSIO_TICKETMASTER_CONNECTED_ACCOUNT_ID
+        sync: false
