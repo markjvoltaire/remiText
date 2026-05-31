@@ -176,6 +176,58 @@ export const tools = [
         },
     },
     {
+        name: 'search_events',
+        description: 'Search Ticketmaster for concerts, sports, theater, and live events. Call when the user asks for tickets, shows, concerts, games, or what is happening in a city on specific dates. Returns a curated SMS list (max 5). Resolve relative dates first. Default to the user home city when no location is given.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                city: {
+                    type: 'string',
+                    description: 'City name, e.g. "New York", "Miami", "Austin"',
+                },
+                state_code: {
+                    type: 'string',
+                    description: 'US state code when helpful, e.g. "NY", "FL"',
+                },
+                keyword: {
+                    type: 'string',
+                    description: 'Artist, team, genre, or event name, e.g. "Taylor Swift", "Knicks", "comedy"',
+                },
+                start_date_time: {
+                    type: 'string',
+                    description: 'ISO-8601 start filter, e.g. "2026-06-01T00:00:00Z"',
+                },
+                end_date_time: {
+                    type: 'string',
+                    description: 'ISO-8601 end filter',
+                },
+                segment_name: {
+                    type: 'string',
+                    description: 'Music, Sports, Arts & Theatre, Family, etc.',
+                },
+                classification_name: {
+                    type: 'string',
+                    description: 'Genre or classification filter, e.g. rock, comedy',
+                },
+            },
+            required: [],
+        },
+    },
+    {
+        name: 'get_event_details',
+        description: 'Get full Ticketmaster details for one event by ID from search_events results. Call when the user picks an event by name or position, or asks for more info on a specific show.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                event_id: {
+                    type: 'string',
+                    description: 'Ticketmaster event ID from search_events',
+                },
+            },
+            required: ['event_id'],
+        },
+    },
+    {
         name: 'search_tiktok',
         description: 'Search social trends in parallel for things to do, eat, nightlife, and events. Call only after the user gave a specific vibe/mood (not for vague requests like "something fun in Miami" — ask their mood first). Call this OR search_instagram, not both. User-facing replies must not mention TikTok, Instagram, or other platforms. Returns slim trend items to synthesize — never paste raw API data.',
         input_schema: {

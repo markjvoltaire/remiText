@@ -100,6 +100,13 @@ import {
   isVagueSocialVibe,
 } from '../utils/formatSocialRecommendations.js';
 import {
+  searchEvents,
+  getEventDetails,
+  TicketmasterNotConfiguredError,
+  TicketmasterApiError,
+} from '../services/ticketmaster.js';
+import { isComposioConfigured } from '../services/composio.js';
+import {
   generateFlightCardImage,
   flightCardInputFromHeldOrder,
   flightCardInputFromOffer,
@@ -281,6 +288,8 @@ Local recommendations (what's trending) — vibe required before searching:
 - Only call search_tiktok or search_instagram once they answer with a concrete vibe: music/scene (house, afrobeats, hip-hop, latin), activity type (beach day, boat, art), occasion (date night, romantic dinner, girls night, birthday), food/drink style (brunch, rooftop, speakeasy, clubs), or similar. "Fun" or "cool spots" alone is still too vague — ask again.
 - When vibe is clear, call exactly ONE of search_tiktok or search_instagram (not both). Pass location, vibe, and 1-2 TikTok keyword phrases + 1-2 Instagram hashtags that match that vibe (no # needed). Example after they say afrobeats clubs: search_tiktok with location "Miami", vibe "afrobeats clubs", keywords ["miami afrobeats nightlife"], instagram_hashtags ["miamiafrobeats", "miaminightlife"].
 - Flight requests → search_flights, hold_flight, book_flight, confirm_booking as appropriate.
+- Concerts, sports, theater, tickets, shows, or "what's on" in a city → search_events. Use home_city from profile when the user does not name a city. When search_events returns "formatted", use it verbatim.
+- User picks an event or asks for details on one show → get_event_details with event_id from search results.
 - Restaurant / table / dinner availability (booking intent) → search_restaurants. If location is missing, ask which city.
 - User picks a restaurant from results → get_restaurant_availability with venue_id from the latest search.
 - User confirms a staged restaurant reservation (yes after "Just to confirm") → book_restaurant_table with confirm=true.
@@ -297,6 +306,8 @@ Output formatting:
 - When book_restaurant_table returns needs_confirmation: true, use "formatted" verbatim.
 - When book_restaurant_table returns success: true, use "formatted" verbatim (usually starts with "done.").
 - When list_restaurant_reservations or cancel_restaurant_reservation returns successfully, use "formatted" verbatim.
+- When search_events returns "formatted" with no error, use it verbatim. Do not list extra events or add a second CTA. Remi does not purchase tickets yet — after details, offer to send the Ticketmaster link if one is in the tool output.
+- When get_event_details returns "formatted", use it verbatim.
 - When search_tiktok or search_instagram returns needs_vibe: true, ask mood in one short SMS. Do not mention tools or APIs.
 - When search_tiktok or search_instagram returns items, synthesize at most 2-3 recommendations — never dump raw posts. Never name-drop apps or platforms. Speak like a friend who already looked. After social recommendations, do not ask to book — stop after the recommendations.
 - When hold_flight returns successfully, use the "formatted" field verbatim.
@@ -879,6 +890,87 @@ async function executeTool(
     await clearLastFlightSearch(user.id);
     await clearPendingOrder(user.id);
     return JSON.stringify({ success: true, message: 'Payment processed and booking confirmed.' });
+  }
+
+  if (toolName === 'search_events') {
+    if (!isComposioConfigured()) {
+      return JSON.stringify({
+        error: true,
+        message: "i can't search live events right now. try again later.",
+      });
+    }
+
+    const city =
+      (input.city as string | undefined)?.trim() ||
+      user.city?.trim() ||
+      undefined;
+    if (!city && !(input.keyword as string | undefined)?.trim()) {
+      return JSON.stringify({
+        error: true,
+        message: 'Which city should I search for events?',
+      });
+    }
+
+    try {
+      const result = await searchEvents(user.id, {
+        city,
+        stateCode: input.state_code as string | undefined,
+        keyword: input.keyword as string | undefined,
+        startDateTime: input.start_date_time as string | undefined,
+        endDateTime: input.end_date_time as string | undefined,
+        segmentName: input.segment_name as string | undefined,
+        classificationName: input.classification_name as string | undefined,
+      });
+      console.log(`[search_events] city=${city ?? ''} count=${result.raw_count}`);
+      return JSON.stringify({
+        events: result.events,
+        formatted: result.formatted,
+      });
+    } catch (err) {
+      const message =
+        err instanceof TicketmasterNotConfiguredError
+          ? "i can't search live events right now."
+          : err instanceof TicketmasterApiError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : String(err);
+      console.error(`[search_events] ${message}`);
+      return JSON.stringify({ error: true, message });
+    }
+  }
+
+  if (toolName === 'get_event_details') {
+    if (!isComposioConfigured()) {
+      return JSON.stringify({
+        error: true,
+        message: "i can't load event details right now.",
+      });
+    }
+
+    const eventId = String(input.event_id ?? '').trim();
+    if (!eventId) {
+      return JSON.stringify({ error: true, message: 'Which event should I look up?' });
+    }
+
+    try {
+      const result = await getEventDetails(user.id, eventId);
+      const url =
+        result.event && typeof result.event.url === 'string' ? result.event.url : undefined;
+      return JSON.stringify({
+        formatted: result.formatted,
+        url,
+      });
+    } catch (err) {
+      const message =
+        err instanceof TicketmasterApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : String(err);
+      console.error(`[get_event_details] ${message}`);
+      return JSON.stringify({ error: true, message });
+    }
   }
 
   if (toolName === 'search_tiktok' || toolName === 'search_instagram') {
