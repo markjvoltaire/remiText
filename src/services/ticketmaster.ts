@@ -8,6 +8,11 @@ import {
   type ComposioToolResult,
 } from './composio.js';
 import {
+  getEventDetailsDiscovery,
+  isTicketmasterDiscoveryConfigured,
+  searchEventsDiscovery,
+} from './ticketmasterDiscovery.js';
+import {
   eventDetailToSMS,
   eventsToSMS,
   parseTicketmasterEventsPayload,
@@ -16,7 +21,9 @@ import {
 
 export class TicketmasterNotConfiguredError extends Error {
   constructor() {
-    super('Ticketmaster is not configured (set COMPOSIO_API_KEY and connect Ticketmaster in Composio)');
+    super(
+      'Ticketmaster is not configured. Set TICKETMASTER_API_KEY (Discovery consumer key) on the worker.',
+    );
     this.name = 'TicketmasterNotConfiguredError';
   }
 }
@@ -26,6 +33,11 @@ export class TicketmasterApiError extends Error {
     super(message);
     this.name = 'TicketmasterApiError';
   }
+}
+
+/** True when Discovery API key or Composio is available. */
+export function isTicketmasterConfigured(): boolean {
+  return isTicketmasterDiscoveryConfigured() || isComposioConfigured();
 }
 
 function failFromResult(result: ComposioToolResult): never {
@@ -67,12 +79,10 @@ export interface SearchEventsResult {
   raw_count: number;
 }
 
-export async function searchEvents(
+async function searchEventsViaComposio(
   userId: string,
   params: SearchEventsParams,
-): Promise<SearchEventsResult> {
-  if (!isComposioConfigured()) throw new TicketmasterNotConfiguredError();
-
+): Promise<TicketmasterEventSummary[]> {
   const args: Record<string, unknown> = {
     size: Math.min(5, Math.max(1, params.size ?? 5)),
     sort: 'date,asc',
@@ -101,7 +111,24 @@ export async function searchEvents(
   if (!composioResultOk(result)) failFromResult(result);
 
   const payload = parseComposioData(result);
-  const events = parseTicketmasterEventsPayload(payload).slice(0, 5);
+  return parseTicketmasterEventsPayload(payload).slice(0, 5);
+}
+
+export async function searchEvents(
+  userId: string,
+  params: SearchEventsParams,
+): Promise<SearchEventsResult> {
+  if (!isTicketmasterConfigured()) throw new TicketmasterNotConfiguredError();
+
+  let events: TicketmasterEventSummary[];
+
+  if (isTicketmasterDiscoveryConfigured()) {
+    events = await searchEventsDiscovery(params);
+  } else if (isComposioConfigured()) {
+    events = await searchEventsViaComposio(userId, params);
+  } else {
+    throw new TicketmasterNotConfiguredError();
+  }
 
   return {
     events,
@@ -114,26 +141,32 @@ export async function getEventDetails(
   userId: string,
   eventId: string,
 ): Promise<{ formatted: string; event: Record<string, unknown> | null }> {
-  if (!isComposioConfigured()) throw new TicketmasterNotConfiguredError();
+  if (!isTicketmasterConfigured()) throw new TicketmasterNotConfiguredError();
 
-  let result: ComposioToolResult;
-  try {
-    result = await executeComposioTool(
-      'TICKETMASTER_GET_EVENT_DETAILS',
-      userId,
-      { id: eventId },
-      { version: TICKETMASTER_TOOLKIT_VERSION },
-    );
-  } catch (err) {
-    failFromExecuteError(err);
+  let event: Record<string, unknown> | null;
+
+  if (isTicketmasterDiscoveryConfigured()) {
+    event = await getEventDetailsDiscovery(eventId);
+  } else {
+    let result: ComposioToolResult;
+    try {
+      result = await executeComposioTool(
+        'TICKETMASTER_GET_EVENT_DETAILS',
+        userId,
+        { id: eventId },
+        { version: TICKETMASTER_TOOLKIT_VERSION },
+      );
+    } catch (err) {
+      failFromExecuteError(err);
+    }
+    if (!composioResultOk(result)) failFromResult(result);
+
+    const payload = parseComposioData(result);
+    event =
+      payload && typeof payload === 'object' && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : null;
   }
-  if (!composioResultOk(result)) failFromResult(result);
-
-  const payload = parseComposioData(result);
-  const event =
-    payload && typeof payload === 'object' && !Array.isArray(payload)
-      ? (payload as Record<string, unknown>)
-      : null;
 
   return {
     formatted: event ? eventDetailToSMS(event) : "couldn't load that event.",

@@ -1,8 +1,9 @@
 import { composioResultOk, executeComposioTool, formatComposioConnectionError, isComposioConfigured, parseComposioData, TICKETMASTER_TOOLKIT_VERSION, } from './composio.js';
+import { getEventDetailsDiscovery, isTicketmasterDiscoveryConfigured, searchEventsDiscovery, } from './ticketmasterDiscovery.js';
 import { eventDetailToSMS, eventsToSMS, parseTicketmasterEventsPayload, } from '../utils/formatEvents.js';
 export class TicketmasterNotConfiguredError extends Error {
     constructor() {
-        super('Ticketmaster is not configured (set COMPOSIO_API_KEY and connect Ticketmaster in Composio)');
+        super('Ticketmaster is not configured. Set TICKETMASTER_API_KEY (Discovery consumer key) on the worker.');
         this.name = 'TicketmasterNotConfiguredError';
     }
 }
@@ -11,6 +12,10 @@ export class TicketmasterApiError extends Error {
         super(message);
         this.name = 'TicketmasterApiError';
     }
+}
+/** True when Discovery API key or Composio is available. */
+export function isTicketmasterConfigured() {
+    return isTicketmasterDiscoveryConfigured() || isComposioConfigured();
 }
 function failFromResult(result) {
     const raw = (typeof result.error === 'string' && result.error) ||
@@ -27,9 +32,7 @@ function failFromExecuteError(err) {
     const combined = [raw, cause].filter(Boolean).join(' — ');
     throw new TicketmasterApiError(formatComposioConnectionError(combined));
 }
-export async function searchEvents(userId, params) {
-    if (!isComposioConfigured())
-        throw new TicketmasterNotConfiguredError();
+async function searchEventsViaComposio(userId, params) {
     const args = {
         size: Math.min(5, Math.max(1, params.size ?? 5)),
         sort: 'date,asc',
@@ -67,7 +70,21 @@ export async function searchEvents(userId, params) {
     if (!composioResultOk(result))
         failFromResult(result);
     const payload = parseComposioData(result);
-    const events = parseTicketmasterEventsPayload(payload).slice(0, 5);
+    return parseTicketmasterEventsPayload(payload).slice(0, 5);
+}
+export async function searchEvents(userId, params) {
+    if (!isTicketmasterConfigured())
+        throw new TicketmasterNotConfiguredError();
+    let events;
+    if (isTicketmasterDiscoveryConfigured()) {
+        events = await searchEventsDiscovery(params);
+    }
+    else if (isComposioConfigured()) {
+        events = await searchEventsViaComposio(userId, params);
+    }
+    else {
+        throw new TicketmasterNotConfiguredError();
+    }
     return {
         events,
         formatted: eventsToSMS(events),
@@ -75,21 +92,28 @@ export async function searchEvents(userId, params) {
     };
 }
 export async function getEventDetails(userId, eventId) {
-    if (!isComposioConfigured())
+    if (!isTicketmasterConfigured())
         throw new TicketmasterNotConfiguredError();
-    let result;
-    try {
-        result = await executeComposioTool('TICKETMASTER_GET_EVENT_DETAILS', userId, { id: eventId }, { version: TICKETMASTER_TOOLKIT_VERSION });
+    let event;
+    if (isTicketmasterDiscoveryConfigured()) {
+        event = await getEventDetailsDiscovery(eventId);
     }
-    catch (err) {
-        failFromExecuteError(err);
+    else {
+        let result;
+        try {
+            result = await executeComposioTool('TICKETMASTER_GET_EVENT_DETAILS', userId, { id: eventId }, { version: TICKETMASTER_TOOLKIT_VERSION });
+        }
+        catch (err) {
+            failFromExecuteError(err);
+        }
+        if (!composioResultOk(result))
+            failFromResult(result);
+        const payload = parseComposioData(result);
+        event =
+            payload && typeof payload === 'object' && !Array.isArray(payload)
+                ? payload
+                : null;
     }
-    if (!composioResultOk(result))
-        failFromResult(result);
-    const payload = parseComposioData(result);
-    const event = payload && typeof payload === 'object' && !Array.isArray(payload)
-        ? payload
-        : null;
     return {
         formatted: event ? eventDetailToSMS(event) : "couldn't load that event.",
         event,

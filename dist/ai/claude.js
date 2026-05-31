@@ -17,8 +17,7 @@ import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import { isMonidConfigured, runSocialDiscovery, MonidNotConfiguredError, MonidApiError, } from '../services/monid.js';
 import { linkAuthStatus, linkAuthLogin, linkAuthPoll, linkPaymentMethodsList, linkShippingAddressList, formatLinkAuthStatus, formatLinkLoginResponse, isLinkCliInstalled, persistLinkAuthFile, } from '../services/linkCli.js';
 import { formatSocialDiscoveryForTool, isVagueSocialVibe, } from '../utils/formatSocialRecommendations.js';
-import { searchEvents, getEventDetails, TicketmasterNotConfiguredError, TicketmasterApiError, } from '../services/ticketmaster.js';
-import { isComposioConfigured } from '../services/composio.js';
+import { searchEvents, getEventDetails, TicketmasterNotConfiguredError, TicketmasterApiError, isTicketmasterConfigured, } from '../services/ticketmaster.js';
 import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, generateRestaurantCardImage, restaurantCardInputFromVenue, } from '../images/satori/index.js';
 import { sessionModelRound, sessionToolLog } from '../utils/sessionLog.js';
 const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '0', 10) || 0));
@@ -696,7 +695,7 @@ async function executeTool(toolName, input, user, ctx) {
         return JSON.stringify({ success: true, message: 'Payment processed and booking confirmed.' });
     }
     if (toolName === 'search_events') {
-        if (!isComposioConfigured()) {
+        if (!isTicketmasterConfigured()) {
             return JSON.stringify({
                 error: true,
                 message: "i can't search live events right now. try again later.",
@@ -740,7 +739,7 @@ async function executeTool(toolName, input, user, ctx) {
         }
     }
     if (toolName === 'get_event_details') {
-        if (!isComposioConfigured()) {
+        if (!isTicketmasterConfigured()) {
             return JSON.stringify({
                 error: true,
                 message: "i can't load event details right now.",

@@ -104,8 +104,8 @@ import {
   getEventDetails,
   TicketmasterNotConfiguredError,
   TicketmasterApiError,
+  isTicketmasterConfigured,
 } from '../services/ticketmaster.js';
-import { isComposioConfigured } from '../services/composio.js';
 import {
   generateFlightCardImage,
   flightCardInputFromHeldOrder,
@@ -893,7 +893,7 @@ async function executeTool(
   }
 
   if (toolName === 'search_events') {
-    if (!isComposioConfigured()) {
+    if (!isTicketmasterConfigured()) {
       return JSON.stringify({
         error: true,
         message: "i can't search live events right now. try again later.",
@@ -941,7 +941,7 @@ async function executeTool(
   }
 
   if (toolName === 'get_event_details') {
-    if (!isComposioConfigured()) {
+    if (!isTicketmasterConfigured()) {
       return JSON.stringify({
         error: true,
         message: "i can't load event details right now.",
