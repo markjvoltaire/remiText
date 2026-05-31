@@ -1,4 +1,4 @@
-import { Composio, type ToolExecuteParams } from '@composio/core';
+import { AuthScheme, Composio, type ToolExecuteParams } from '@composio/core';
 
 /** Composio toolkit slug (lowercase). */
 export const TICKETMASTER_TOOLKIT = 'ticketmaster';
@@ -15,6 +15,10 @@ export function isComposioConfigured(): boolean {
 
 export function getTicketmasterConnectedAccountId(): string | undefined {
   return process.env.COMPOSIO_TICKETMASTER_CONNECTED_ACCOUNT_ID?.trim() || undefined;
+}
+
+export function getTicketmasterApiKey(): string | undefined {
+  return process.env.TICKETMASTER_API_KEY?.trim() || undefined;
 }
 
 export function getComposioClient(): Composio {
@@ -70,6 +74,15 @@ export async function executeComposioTool(
     options.connectedAccountId ?? getTicketmasterConnectedAccountId();
   if (connectedAccountId) {
     body.connectedAccountId = connectedAccountId;
+  } else {
+    const ticketmasterApiKey = getTicketmasterApiKey();
+    if (ticketmasterApiKey) {
+      body.customConnectionData = {
+        authScheme: 'API_KEY',
+        toolkitSlug: TICKETMASTER_TOOLKIT,
+        val: AuthScheme.APIKey({ api_key: ticketmasterApiKey }),
+      };
+    }
   }
 
   const raw = await composio.tools.execute(slug, body);
@@ -100,8 +113,10 @@ export function formatComposioConnectionError(message: string): string {
   if (/connected account|connection|auth config|1810/i.test(message)) {
     return (
       'Ticketmaster is not connected in Composio yet. ' +
-      'In the Composio dashboard, add your Ticketmaster Discovery API key, link the toolkit once, ' +
-      'then set COMPOSIO_TICKETMASTER_CONNECTED_ACCOUNT_ID on the worker.'
+      'In Auth Configs, open your Ticketmaster config and click "+ Connect Account" (Connections must be 1+, not 0). ' +
+      'Copy the connected account id (starts with ca_, not ac_) into COMPOSIO_TICKETMASTER_CONNECTED_ACCOUNT_ID on Render. ' +
+      'Or set TICKETMASTER_API_KEY to your Discovery API consumer key. ' +
+      'For event search, an API Key auth config usually works better than OAuth2.'
     );
   }
   if (/toolkit version/i.test(message)) {

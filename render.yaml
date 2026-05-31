@@ -73,3 +73,5 @@ services:
         value: "20260417_00"
       - key: COMPOSIO_TICKETMASTER_CONNECTED_ACCOUNT_ID
         sync: false
+      - key: TICKETMASTER_API_KEY
+        sync: false
