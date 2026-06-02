@@ -40,7 +40,7 @@ services:
       - key: MESSAGE_HANDLER_TIMEOUT_MS
         sync: false
       - key: DUFFEL_ENV
-        value: test
+        value: live
       - key: DUFFEL_API_KEY
         sync: false
       - key: DUFFEL_API_KEY_PROD

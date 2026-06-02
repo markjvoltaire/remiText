@@ -4,10 +4,11 @@ import { computeAllInPrice, logPriceBreakdown } from '../utils/pricing.js';
 
 export type DuffelEnvironment = 'test' | 'live';
 
-/** `DUFFEL_ENV=live` uses live token; anything else (including unset) uses test. */
+/** `DUFFEL_ENV=live|production|prod` uses live token; anything else (including unset) uses test. */
 export function getDuffelEnvironment(): DuffelEnvironment {
   const raw = process.env.DUFFEL_ENV?.trim().toLowerCase();
-  return raw === 'live' ? 'live' : 'test';
+  if (raw === 'live' || raw === 'production' || raw === 'prod') return 'live';
+  return 'test';
 }
 
 function getDuffelApiKey(mode: DuffelEnvironment): string {
