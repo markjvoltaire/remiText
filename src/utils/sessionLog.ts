@@ -168,6 +168,8 @@ export function sessionTurnStart(opts: {
   inboundText: string;
   agentInput?: string;
   historyCount?: number;
+  imageCount?: number;
+  voiceMemo?: boolean;
 }): void {
   if (!enabled()) return;
 
@@ -196,6 +198,13 @@ export function sessionTurnStart(opts: {
 
   console.log("  USER");
   console.log(userBody);
+
+  if (opts.imageCount && opts.imageCount > 0) {
+    console.log(`  IMAGES  ${opts.imageCount} inbound image(s) attached to model turn`);
+  }
+  if (opts.voiceMemo) {
+    console.log("  AUDIO   voice memo transcribed for this turn");
+  }
 
   if (opts.historyCount !== undefined) {
     console.log(`  CONTEXT  ${opts.historyCount} prior message(s) loaded`);

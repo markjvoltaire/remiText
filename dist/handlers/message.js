@@ -122,8 +122,8 @@ export async function handleMessage(space, message) {
     }
     let agentInput = mergeVoiceTranscript(text, voiceTranscript);
     const baseAgentInput = agentInput;
-    const bookAugmented = augmentBookRestaurantCommand(agentInput, user, history);
-    if (bookAugmented !== agentInput) {
+    const bookAugmented = augmentBookRestaurantCommand(text, user, history);
+    if (bookAugmented !== text) {
         console.log('[msg] book-restaurant intent augmented');
         agentInput = bookAugmented;
     }

@@ -3,13 +3,15 @@ const MAX_VOICE = Math.max(1, Math.min(3, Number.parseInt(process.env.REMI_INBOU
 const MAX_IMAGE_BYTES = Math.max(512_000, Math.min(10 * 1024 * 1024, Number.parseInt(process.env.REMI_INBOUND_IMAGE_MAX_BYTES ?? '5242880', 10) || 5_242_880));
 const MAX_VOICE_BYTES = Math.max(512_000, Math.min(25 * 1024 * 1024, Number.parseInt(process.env.REMI_INBOUND_AUDIO_MAX_BYTES ?? '25165824', 10) || 25_165_824));
 /** Prefer stream() for large clips per Spectrum voice/attachment docs. */
-const STREAM_THRESHOLD_BYTES = Math.max(256_000, Number.parseInt(process.env.REMI_INBOUND_VOICE_STREAM_THRESHOLD_BYTES ?? '1048576', 10) || 1_048_576);
+const STREAM_THRESHOLD_BYTES = Math.max(256_000, Number.parseInt(process.env.REMI_INBOUND_VOICE_STREAM_THRESHOLD_BYTES ?? '1048576', 10) ||
+    1_048_576);
 const CLAUDE_IMAGE_TYPES = new Set([
     'image/jpeg',
     'image/png',
     'image/gif',
     'image/webp',
 ]);
+export const IMAGE_ONLY_USER_HINT = 'The user sent a screenshot or photo with no caption. Read it carefully — it may be a message thread, reservation, flight, menu, or something they want help acting on. Summarize what you see and help, or ask one short clarifying question if needed.';
 function extractText(content) {
     if (typeof content === 'string')
         return content;
@@ -36,7 +38,8 @@ function hasMediaLikeContent(content) {
         return record.items.some((item) => {
             if (!item || typeof item !== 'object')
                 return false;
-            const itemContent = 'content' in item ? item.content : item;
+            const itemRecord = item;
+            const itemContent = 'content' in itemRecord ? itemRecord.content : item;
             return hasMediaLikeContent(itemContent);
         });
     }
@@ -74,7 +77,11 @@ async function materializeSpectrumBytes(readable, label) {
         }
         if (typeof readable.read === 'function') {
             const raw = await readable.read();
-            return Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+            if (Buffer.isBuffer(raw))
+                return raw;
+            if (raw instanceof Uint8Array)
+                return Buffer.from(raw);
+            return Buffer.from(new Uint8Array(raw));
         }
         if (typeof readable.stream === 'function') {
             const stream = await readable.stream();
@@ -278,4 +285,5 @@ export function mergeVoiceTranscript(text, transcript) {
         return trimmedVoice;
     return `${trimmedText}\n\n${trimmedVoice}`;
 }
-export const IMAGE_ONLY_USER_HINT = 'The user sent a screenshot or photo with no caption. Read it carefully — it may be a message thread, reservation, flight, menu, or something they want help acting on. Summarize what you see and help, or ask one short clarifying question if needed.';
+/** Placeholder for user turns stored with empty text (e.g. image-only before history formatting). */
+export const EMPTY_USER_HISTORY_PLACEHOLDER = '[screenshot]';

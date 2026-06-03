@@ -123,6 +123,11 @@ import type {
   RestaurantVenue,
 } from '../types.js';
 import { sessionModelRound, sessionToolLog } from '../utils/sessionLog.js';
+import {
+  EMPTY_USER_HISTORY_PLACEHOLDER,
+  IMAGE_ONLY_USER_HINT,
+  type InboundImageForClaude,
+} from '../utils/inboundContent.js';
 
 const SEARCH_PREVIEW_CARD_LIMIT = Math.max(
   0,
@@ -348,6 +353,10 @@ type ToolInput = Record<string, unknown>;
 export interface AgentLoopResult {
   text: string;
   attachments: PreviewCardImage[];
+}
+
+export interface AgentLoopOptions {
+  images?: InboundImageForClaude[];
 }
 
 interface AgentSessionContext {
@@ -1600,10 +1609,44 @@ async function executeTool(
   throw new Error(`Unknown tool: ${toolName}`);
 }
 
+type UserMessageContent = string | Anthropic.ContentBlockParam[];
+
+function buildUserMessageContent(userMessage: string, images?: InboundImageForClaude[]): UserMessageContent {
+  if (!images?.length) {
+    return userMessage.trim() || EMPTY_USER_HISTORY_PLACEHOLDER;
+  }
+
+  const blocks: Anthropic.ContentBlockParam[] = images.map((img) => ({
+    type: 'image',
+    source: {
+      type: 'base64',
+      media_type: img.mediaType,
+      data: img.buffer.toString('base64'),
+    },
+  }));
+
+  const trimmed = userMessage.trim();
+  blocks.push({
+    type: 'text',
+    text: trimmed || IMAGE_ONLY_USER_HINT,
+  });
+
+  return blocks;
+}
+
+function historyMessageForClaude(message: ConversationMessage): Anthropic.MessageParam {
+  let content = message.content;
+  if (message.role === 'user' && typeof content === 'string' && !content.trim()) {
+    content = EMPTY_USER_HISTORY_PLACEHOLDER;
+  }
+  return { role: message.role, content };
+}
+
 export async function runAgentLoop(
   userMessage: string,
   history: ConversationMessage[],
   user: UserProfile,
+  options: AgentLoopOptions = {},
 ): Promise<AgentLoopResult> {
   const flightPending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
   const restaurantPending = formatLastRestaurantSearchForPrompt(
@@ -1622,18 +1665,19 @@ export async function runAgentLoop(
     Boolean,
   );
   const todayISO = new Date().toISOString().split('T')[0]!;
-  const resolved = resolveRelativeDates(userMessage, todayISO);
+  const dateHint = userMessage.trim() || (options.images?.length ? 'screenshot' : '');
+  const resolved = resolveRelativeDates(dateHint, todayISO);
   const systemBase = contextParts.length ? `${SYSTEM_PROMPT}\n\n${contextParts.join('\n\n')}` : SYSTEM_PROMPT;
   const system = resolved.changed
     ? `${systemBase}\n\nRelative date resolution: Interpret the user's last message as: "${resolved.resolvedText}".`
     : systemBase;
 
   const messages: Anthropic.MessageParam[] = [
-    ...history.map((m) => ({ role: m.role, content: m.content })),
-    { role: 'user', content: userMessage },
+    ...history.map(historyMessageForClaude),
+    { role: 'user', content: buildUserMessageContent(userMessage, options.images) },
   ];
 
-  const ctx: AgentSessionContext = { attachments: [], userMessage };
+  const ctx: AgentSessionContext = { attachments: [], userMessage: userMessage.trim() || dateHint };
   let modelRound = 0;
 
   while (true) {

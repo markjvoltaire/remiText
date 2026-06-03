@@ -31,15 +31,16 @@ import {
 import type { PreviewCardImage, PreviewCardRef } from '../images/satori/index.js';
 import type { LastSentPreviewCards } from '../types.js';
 import { sessionAssistantLog, sessionTurnAbort, sessionTurnStart } from '../utils/sessionLog.js';
-
-function extractText(content: unknown): string {
-  if (typeof content === 'string') return content;
-  if (Array.isArray(content)) return content.map(extractText).join('');
-  if (content && typeof content === 'object' && 'text' in content) {
-    return String((content as { text: unknown }).text ?? '');
-  }
-  return '';
-}
+import {
+  extractInboundContent,
+  formatUserTurnForHistory,
+  mergeVoiceTranscript,
+  messageHasUnprocessedMedia,
+} from '../utils/inboundContent.js';
+import {
+  transcribeAudio,
+  TranscriptionNotConfiguredError,
+} from '../services/transcribe.js';
 
 function welcomeMessage(name: string): string {
   const first = name.trim().split(/\s+/)[0] || name;
@@ -60,15 +61,22 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
 
   const senderId = (message as any).direction === 'inbound' ? (message.sender?.id ?? space.id) : space.id;
   const contactKey = normalizeContactKey(senderId);
-  const text = extractText(message.content);
+  const inbound = await extractInboundContent(message);
+  const text = inbound.text;
+  const inboundImages = inbound.images;
+  const inboundVoice = inbound.voice;
 
   console.log(
-    `[msg] id=${id} space=${space.id} sender=${contactKey} inbound_len=${text.length}`,
+    `[msg] id=${id} space=${space.id} sender=${contactKey} inbound_len=${text.length} images=${inboundImages.length} voice=${inboundVoice.length}`,
   );
 
   const userRecord = await getUserByPhone(contactKey);
 
   if (!userRecord) {
+    if ((inboundImages.length > 0 || inboundVoice.length > 0) && !text.trim()) {
+      await space.send("i can read screenshots and voice memos once you're set up — what's your first name?");
+      return;
+    }
     let session = await getOnboardingSession(contactKey);
     if (session && isOnboardingCancelMessage(text)) {
       await cancelOnboarding(session.phone);
@@ -136,7 +144,42 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
 
   console.log(`[msg] user=${user.id}`);
 
-  let agentInput = text;
+  let voiceTranscript = '';
+  if (inboundVoice.length > 0) {
+    const clip = inboundVoice[0]!;
+    try {
+      voiceTranscript = await transcribeAudio(clip.buffer, clip.mimeType, clip.name);
+      console.log(
+        `[msg] voice transcribed user=${user.id} chars=${voiceTranscript.length} source=${clip.source} duration=${clip.durationSeconds ?? '?'}s`,
+      );
+    } catch (err) {
+      if (err instanceof TranscriptionNotConfiguredError) {
+        await space.send("voice memos aren't set up yet — type it out or send a screenshot for now.");
+        return;
+      }
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[msg] voice transcription failed user=${user.id}: ${msg}`);
+      await space.send("couldn't make out that voice memo — try again or type it out.");
+      return;
+    }
+  }
+
+  if (
+    messageHasUnprocessedMedia(message.content, inbound) &&
+    !text.trim() &&
+    !voiceTranscript
+  ) {
+    await space.send("couldn't read that — try sending it again or paste the text.");
+    return;
+  }
+
+  if (!text.trim() && !voiceTranscript && inboundImages.length === 0) {
+    console.log(`[msg] empty inbound ignored user=${user.id}`);
+    return;
+  }
+
+  let agentInput = mergeVoiceTranscript(text, voiceTranscript);
+  const baseAgentInput = agentInput;
 
   const bookAugmented = augmentBookRestaurantCommand(text, user, history);
   if (bookAugmented !== text) {
@@ -194,15 +237,21 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
     messageId: id,
     contactKey,
     inboundText: text,
-    agentInput: agentInput !== text ? agentInput : undefined,
+    agentInput: agentInput !== baseAgentInput ? agentInput : undefined,
     historyCount: history.length,
+    imageCount: inboundImages.length,
+    voiceMemo: inboundVoice.length > 0,
   });
 
-  await appendMessage(user.id, 'user', agentInput);
+  const historyContent = formatUserTurnForHistory(agentInput, {
+    hasImages: inboundImages.length > 0,
+    voiceTranscript: voiceTranscript || undefined,
+  });
+  await appendMessage(user.id, 'user', historyContent);
 
   let agentResult: Awaited<ReturnType<typeof runAgentLoop>>;
   try {
-    agentResult = await runAgentLoop(agentInput, history, user);
+    agentResult = await runAgentLoop(agentInput, history, user, { images: inboundImages });
   } catch (err) {
     const messageText = err instanceof Error ? err.message : String(err);
     console.error(`[agent] runAgentLoop failed user=${user.id}:`, messageText);

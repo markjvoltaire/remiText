@@ -20,7 +20,7 @@ import { formatSocialDiscoveryForTool, isVagueSocialVibe, } from '../utils/forma
 import { searchEvents, getEventDetails, TicketmasterNotConfiguredError, TicketmasterApiError, isTicketmasterConfigured, } from '../services/ticketmaster.js';
 import { generateFlightCardImage, flightCardInputFromHeldOrder, flightCardInputFromOffer, generateRestaurantCardImage, restaurantCardInputFromVenue, } from '../images/satori/index.js';
 import { sessionModelRound, sessionToolLog } from '../utils/sessionLog.js';
-import { IMAGE_ONLY_USER_HINT } from '../utils/inboundContent.js';
+import { EMPTY_USER_HISTORY_PLACEHOLDER, IMAGE_ONLY_USER_HINT, } from '../utils/inboundContent.js';
 const SEARCH_PREVIEW_CARD_LIMIT = Math.max(0, Math.min(5, Number.parseInt(process.env.REMI_SEARCH_PREVIEW_CARDS ?? '0', 10) || 0));
 const RESTAURANT_SMS_VENUE_LIMIT = 4;
 /** Cheapest first; when preview cards are enabled, same length as image count. */
@@ -138,8 +138,6 @@ Today's date is ${new Date().toISOString().split('T')[0]}.
 Rules:
 - Keep replies concise. Max 3 sentences for bookings and search results unless you are pasting tool output (flight or restaurant search results). For general conversation, up to 5 sentences is fine — still SMS-length, not essays.
 - No tool call needed for casual chat, questions, opinions, or advice unless the user is clearly asking you to search, book, or look something up.
-- When the user sends a screenshot or photo, read it carefully. Common cases: forwarded iMessage threads, reservation confirmations, flight details, menus, maps. Extract useful details and help — book, summarize, draft a reply, or ask one short clarifying question if needed.
-- Voice memos arrive as transcribed text — treat them like the user typed it. Respond naturally; do not mention transcription unless something went wrong.
 - Plain text only: no Markdown, no asterisks (*), no bold/italics markers, no backticks.
 - When search_flights returns a formatted option list, use "formatted" verbatim — do not shorten or reformat flight options.
 - When search_restaurants returns "formatted", use it verbatim. Do not add inventory, headers, or a second CTA.
@@ -1306,8 +1304,9 @@ async function executeTool(toolName, input, user, ctx) {
     throw new Error(`Unknown tool: ${toolName}`);
 }
 function buildUserMessageContent(userMessage, images) {
-    if (!images?.length)
-        return userMessage;
+    if (!images?.length) {
+        return userMessage.trim() || EMPTY_USER_HISTORY_PLACEHOLDER;
+    }
     const blocks = images.map((img) => ({
         type: 'image',
         source: {
@@ -1322,6 +1321,13 @@ function buildUserMessageContent(userMessage, images) {
         text: trimmed || IMAGE_ONLY_USER_HINT,
     });
     return blocks;
+}
+function historyMessageForClaude(message) {
+    let content = message.content;
+    if (message.role === 'user' && typeof content === 'string' && !content.trim()) {
+        content = EMPTY_USER_HISTORY_PLACEHOLDER;
+    }
+    return { role: message.role, content };
 }
 export async function runAgentLoop(userMessage, history, user, options = {}) {
     const flightPending = formatLastSearchForPrompt(user.last_flight_search ?? undefined);
@@ -1342,7 +1348,7 @@ export async function runAgentLoop(userMessage, history, user, options = {}) {
         ? `${systemBase}\n\nRelative date resolution: Interpret the user's last message as: "${resolved.resolvedText}".`
         : systemBase;
     const messages = [
-        ...history.map((m) => ({ role: m.role, content: m.content })),
+        ...history.map(historyMessageForClaude),
         { role: 'user', content: buildUserMessageContent(userMessage, options.images) },
     ];
     const ctx = { attachments: [], userMessage: userMessage.trim() || dateHint };
