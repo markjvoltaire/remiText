@@ -45,7 +45,7 @@ function welcomeMessage(name: string): string {
   const first = name.trim().split(/\s+/)[0] || name;
   return (
     `you're all set, ${first}.\n\n` +
-    `text me when you want a table, a flight, or what's good near you.`
+    `i'm here whenever — chat, questions, whatever. when you want something handled i can book tables, find flights, and tell you what's good nearby.`
   );
 }
 
@@ -78,7 +78,7 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
 
     if (!session) {
       await startOnboarding(contactKey);
-      await space.send("hey — i'm remi.\n\nwhat's your first name?");
+      await space.send("hey — i'm remi, your assistant in iMessage.\n\nwhat's your first name?");
       return;
     }
 
