@@ -2,6 +2,7 @@ import { cloud } from 'spectrum-ts';
 import { createClient } from '@photon-ai/advanced-imessage';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { parseChildMessageId } from '../utils/replyContext.js';
+import { appendMediaFromPhotonMessage, shouldTryPhotonMediaFallback, } from '../utils/inboundContent.js';
 const SHARED_IMESSAGE_ADDRESS = process.env.SPECTRUM_IMESSAGE_ADDRESS ?? 'imessage.spectrum.photon.codes:443';
 let _client = null;
 let _clientAddress = null;
@@ -65,6 +66,96 @@ async function ensureClient() {
 }
 async function getClient() {
     return ensureClient();
+}
+async function downloadPhotonAttachmentBuffer(attachmentGuid) {
+    const client = await getClient();
+    const frames = client.attachments.downloadStream(attachmentGuid);
+    const chunks = [];
+    try {
+        for await (const frame of frames) {
+            if (frame.type === 'primaryChunk') {
+                chunks.push(Buffer.from(frame.data));
+            }
+        }
+    }
+    finally {
+        await frames.close();
+    }
+    return chunks.length > 0 ? Buffer.concat(chunks) : null;
+}
+function photonMessageFromSpectrumContent(content) {
+    if (!content || typeof content !== 'object')
+        return null;
+    const record = content;
+    if (record.type !== 'custom' || !record.raw || typeof record.raw !== 'object')
+        return null;
+    const raw = record.raw;
+    if (typeof raw.guid !== 'string' || !raw.content || typeof raw.content !== 'object')
+        return null;
+    return raw;
+}
+async function resolvePhotonMessageForSpectrum(spaceId, spectrumMessage) {
+    const fromCustom = photonMessageFromSpectrumContent(spectrumMessage.content);
+    if (fromCustom)
+        return fromCustom;
+    const messageId = spectrumMessage.id;
+    if (messageId && !messageId.startsWith('spc-')) {
+        try {
+            return await (await getClient()).messages.get(spaceId, messageId);
+        }
+        catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn(`[inbound] photon messages.get failed id=${messageId}: ${msg}`);
+        }
+    }
+    const at = spectrumMessage.timestamp?.getTime();
+    if (!at)
+        return null;
+    try {
+        const page = await (await getClient()).messages.listInChat(spaceId, {
+            pageSize: 12,
+            isFromMe: false,
+        });
+        let best = null;
+        for (const candidate of page.messages) {
+            const delta = Math.abs(candidate.dateCreated.getTime() - at);
+            if (delta > 45_000)
+                continue;
+            const hasMedia = candidate.isAudioMessage ||
+                (candidate.content.attachments?.length ?? 0) > 0 ||
+                Boolean(candidate.content.text?.trim());
+            if (!hasMedia)
+                continue;
+            if (!best || delta < best.delta) {
+                best = { message: candidate, delta };
+            }
+        }
+        if (best) {
+            console.log(`[inbound] photon fallback matched guid=${best.message.guid} deltaMs=${best.delta} audio=${best.message.isAudioMessage}`);
+            return best.message;
+        }
+    }
+    catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[inbound] photon listInChat fallback failed space=${spaceId}: ${msg}`);
+    }
+    return null;
+}
+/** Re-fetch voice/image bytes via Photon when Spectrum cloud content is metadata-only. */
+export async function enrichInboundFromPhoton(spaceId, spectrumMessage, inbound) {
+    if (!shouldTryPhotonMediaFallback(inbound, spectrumMessage.content)) {
+        return inbound;
+    }
+    const photonMessage = await resolvePhotonMessageForSpectrum(spaceId, spectrumMessage);
+    if (!photonMessage)
+        return inbound;
+    const enriched = await appendMediaFromPhotonMessage(inbound, photonMessage, downloadPhotonAttachmentBuffer);
+    if (enriched.voice.length > inbound.voice.length ||
+        enriched.images.length > inbound.images.length ||
+        (!inbound.text.trim() && enriched.text.trim())) {
+        console.log(`[inbound] photon enrich id=${spectrumMessage.id} voice=${enriched.voice.length} images=${enriched.images.length} text_len=${enriched.text.length}`);
+    }
+    return enriched;
 }
 export async function markRead(spaceId) {
     await (await getClient()).chats.markRead(spaceId);

@@ -7,7 +7,7 @@ import {
   appendMessage,
   setLastSentPreviewCards,
 } from '../services/supabase.js';
-import { markRead, sendPhotoStack, resolveInboundReplyTarget, isReplyToOurMessage } from '../services/imessage.js';
+import { markRead, sendPhotoStack, resolveInboundReplyTarget, isReplyToOurMessage, enrichInboundFromPhoton } from '../services/imessage.js';
 import { runAgentLoop, isAnthropicCapacityError } from '../ai/claude.js';
 import {
   advanceOnboarding,
@@ -61,7 +61,11 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
 
   const senderId = (message as any).direction === 'inbound' ? (message.sender?.id ?? space.id) : space.id;
   const contactKey = normalizeContactKey(senderId);
-  const inbound = await extractInboundContent(message);
+  const inbound = await enrichInboundFromPhoton(
+    space.id,
+    message,
+    await extractInboundContent(message),
+  );
   const text = inbound.text;
   const inboundImages = inbound.images;
   const inboundVoice = inbound.voice;
@@ -169,6 +173,13 @@ export async function handleMessage(space: Space, message: Message): Promise<voi
     !text.trim() &&
     !voiceTranscript
   ) {
+    const contentType =
+      message.content && typeof message.content === 'object' && 'type' in message.content
+        ? String((message.content as { type: unknown }).type)
+        : typeof message.content;
+    console.warn(
+      `[msg] unprocessed media user=${user.id} id=${id} content_type=${contentType} images=${inboundImages.length} voice=${inboundVoice.length}`,
+    );
     await space.send("couldn't read that — try sending it again or paste the text.");
     return;
   }

@@ -79,10 +79,26 @@ function isAudioMimeType(mimeType: string): boolean {
   return mimeType.toLowerCase().startsWith('audio/');
 }
 
+function photonAttachmentsFromCustom(content: unknown): unknown[] {
+  if (!content || typeof content !== 'object') return [];
+  const record = content as Record<string, unknown>;
+  if (record.type !== 'custom' || !record.raw || typeof record.raw !== 'object') return [];
+  const raw = record.raw as Record<string, unknown>;
+  const messageContent = raw.content;
+  if (!messageContent || typeof messageContent !== 'object') return [];
+  const attachments = (messageContent as Record<string, unknown>).attachments;
+  return Array.isArray(attachments) ? attachments : [];
+}
+
 function hasMediaLikeContent(content: unknown): boolean {
   if (!content || typeof content !== 'object') return false;
   const record = content as Record<string, unknown>;
   if (record.type === 'attachment' || record.type === 'voice') return true;
+  if (record.type === 'custom') {
+    if (photonAttachmentsFromCustom(content).length > 0) return true;
+    const raw = (record.raw ?? {}) as Record<string, unknown>;
+    if (raw.isAudioMessage === true) return true;
+  }
   if (record.type === 'group' && Array.isArray(record.items)) {
     return (record.items as unknown[]).some((item) => {
       if (!item || typeof item !== 'object') return false;
@@ -339,6 +355,91 @@ export async function extractInboundContent(message: Message): Promise<ExtractIn
   const text = extractText(content);
   const { images, voice } = await collectMediaFromContent(content);
   return { text, images, voice };
+}
+
+interface PhotonAttachmentRef {
+  guid: string;
+  fileName: string;
+  mimeType: string;
+  totalBytes?: number;
+}
+
+interface PhotonMessageMediaSource {
+  isAudioMessage?: boolean;
+  content?: {
+    text?: string;
+    attachments?: readonly PhotonAttachmentRef[];
+  };
+}
+
+/** Download attachments from a Photon message when Spectrum content bytes are unavailable (cloud relay). */
+export async function appendMediaFromPhotonMessage(
+  inbound: ExtractInboundContentResult,
+  photonMessage: PhotonMessageMediaSource,
+  download: (guid: string) => Promise<Buffer | null>,
+): Promise<ExtractInboundContentResult> {
+  const images = [...inbound.images];
+  const voice = [...inbound.voice];
+  const attachments = photonMessage.content?.attachments ?? [];
+  const treatAllAsVoice = photonMessage.isAudioMessage === true;
+
+  for (const att of attachments) {
+    if (images.length >= MAX_IMAGES && voice.length >= MAX_VOICE) break;
+    if (!att.guid) continue;
+
+    const buffer = await download(att.guid);
+    if (!buffer) {
+      console.warn(`[inbound] photon attachment download empty guid=${att.guid} name=${att.fileName}`);
+      continue;
+    }
+
+    const mimeType = att.mimeType || 'application/octet-stream';
+    const asVoice = treatAllAsVoice || isAudioMimeType(mimeType);
+
+    if (asVoice && voice.length < MAX_VOICE) {
+      const clip = normalizeVoice(buffer, {
+        mimeType,
+        name: att.fileName || 'voice.m4a',
+        sizeBytes: att.totalBytes,
+        source: 'attachment',
+      });
+      if (clip) voice.push(clip);
+      continue;
+    }
+
+    if (isImageMimeType(mimeType) && images.length < MAX_IMAGES) {
+      const normalized = await normalizeImageForClaude(buffer, mimeType, att.fileName || 'image');
+      if (normalized) images.push(normalized);
+    }
+  }
+
+  const photonText = photonMessage.content?.text?.trim() ?? '';
+  const text = inbound.text.trim() ? inbound.text : photonText;
+
+  return { text, images, voice };
+}
+
+export function shouldTryPhotonMediaFallback(
+  inbound: ExtractInboundContentResult,
+  content: unknown,
+): boolean {
+  if (inboundHasReadableMedia(inbound)) return false;
+  if (messageHasUnprocessedMedia(content, inbound)) return true;
+  if (!inbound.text.trim() && photonAttachmentsFromCustom(content).length > 0) return true;
+
+  if (!inbound.text.trim()) {
+    if (content && typeof content === 'object') {
+      const record = content as Record<string, unknown>;
+      if (record.type === 'custom') {
+        const raw = (record.raw ?? {}) as Record<string, unknown>;
+        if (raw.isAudioMessage === true) return true;
+        if (typeof raw.guid === 'string') return true;
+      }
+      if (record.type === 'attachment' || record.type === 'voice') return true;
+    }
+  }
+
+  return false;
 }
 
 export function inboundHasReadableMedia(inbound: Pick<ExtractInboundContentResult, 'images' | 'voice'>): boolean {

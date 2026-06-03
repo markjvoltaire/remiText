@@ -2,8 +2,14 @@ import { cloud } from 'spectrum-ts';
 import type { TokenData } from 'spectrum-ts';
 import { createClient } from '@photon-ai/advanced-imessage';
 import type { AdvancedIMessage, Message } from '@photon-ai/advanced-imessage';
+import type { Message as PhotonMessage } from '@photon-ai/advanced-imessage';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { parseChildMessageId } from '../utils/replyContext.js';
+import type { ExtractInboundContentResult } from '../utils/inboundContent.js';
+import {
+  appendMediaFromPhotonMessage,
+  shouldTryPhotonMediaFallback,
+} from '../utils/inboundContent.js';
 
 export interface PhotoStackImage {
   buffer: Buffer;
@@ -90,6 +96,117 @@ async function ensureClient(): Promise<AdvancedIMessage> {
 
 async function getClient(): Promise<AdvancedIMessage> {
   return ensureClient();
+}
+
+async function downloadPhotonAttachmentBuffer(attachmentGuid: string): Promise<Buffer | null> {
+  const client = await getClient();
+  const frames = client.attachments.downloadStream(attachmentGuid);
+  const chunks: Buffer[] = [];
+  try {
+    for await (const frame of frames) {
+      if (frame.type === 'primaryChunk') {
+        chunks.push(Buffer.from(frame.data));
+      }
+    }
+  } finally {
+    await frames.close();
+  }
+  return chunks.length > 0 ? Buffer.concat(chunks) : null;
+}
+
+function photonMessageFromSpectrumContent(content: unknown): PhotonMessage | null {
+  if (!content || typeof content !== 'object') return null;
+  const record = content as Record<string, unknown>;
+  if (record.type !== 'custom' || !record.raw || typeof record.raw !== 'object') return null;
+  const raw = record.raw as Record<string, unknown>;
+  if (typeof raw.guid !== 'string' || !raw.content || typeof raw.content !== 'object') return null;
+  return raw as unknown as PhotonMessage;
+}
+
+async function resolvePhotonMessageForSpectrum(
+  spaceId: string,
+  spectrumMessage: { id: string; content: unknown; timestamp?: Date },
+): Promise<PhotonMessage | null> {
+  const fromCustom = photonMessageFromSpectrumContent(spectrumMessage.content);
+  if (fromCustom) return fromCustom;
+
+  const messageId = spectrumMessage.id;
+  if (messageId && !messageId.startsWith('spc-')) {
+    try {
+      return await (await getClient()).messages.get(spaceId, messageId);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[inbound] photon messages.get failed id=${messageId}: ${msg}`);
+    }
+  }
+
+  const at = spectrumMessage.timestamp?.getTime();
+  if (!at) return null;
+
+  try {
+    const page = await (await getClient()).messages.listInChat(spaceId, {
+      pageSize: 12,
+      isFromMe: false,
+    });
+
+    let best: { message: PhotonMessage; delta: number } | null = null;
+    for (const candidate of page.messages) {
+      const delta = Math.abs(candidate.dateCreated.getTime() - at);
+      if (delta > 45_000) continue;
+      const hasMedia =
+        candidate.isAudioMessage ||
+        (candidate.content.attachments?.length ?? 0) > 0 ||
+        Boolean(candidate.content.text?.trim());
+      if (!hasMedia) continue;
+      if (!best || delta < best.delta) {
+        best = { message: candidate, delta };
+      }
+    }
+
+    if (best) {
+      console.log(
+        `[inbound] photon fallback matched guid=${best.message.guid} deltaMs=${best.delta} audio=${best.message.isAudioMessage}`,
+      );
+      return best.message;
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[inbound] photon listInChat fallback failed space=${spaceId}: ${msg}`);
+  }
+
+  return null;
+}
+
+/** Re-fetch voice/image bytes via Photon when Spectrum cloud content is metadata-only. */
+export async function enrichInboundFromPhoton(
+  spaceId: string,
+  spectrumMessage: { id: string; content: unknown; timestamp?: Date },
+  inbound: ExtractInboundContentResult,
+): Promise<ExtractInboundContentResult> {
+  if (!shouldTryPhotonMediaFallback(inbound, spectrumMessage.content)) {
+    return inbound;
+  }
+
+  const photonMessage = await resolvePhotonMessageForSpectrum(spaceId, spectrumMessage);
+  if (!photonMessage) return inbound;
+
+  const enriched = await appendMediaFromPhotonMessage(
+    inbound,
+    photonMessage,
+    downloadPhotonAttachmentBuffer,
+  );
+
+  if (
+    enriched.voice.length > inbound.voice.length ||
+    enriched.images.length > inbound.images.length ||
+    (!inbound.text.trim() && enriched.text.trim())
+  ) {
+    console.log(
+      `[inbound] photon enrich id=${spectrumMessage.id} voice=${enriched.voice.length} images=${enriched.images.length} text_len=${enriched.text.length}`,
+    );
+  }
+
+  return enriched;
 }
 
 export async function markRead(spaceId: string): Promise<void> {
