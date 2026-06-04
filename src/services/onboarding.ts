@@ -176,7 +176,6 @@ export async function advanceOnboarding(
   inboundText: string,
 ): Promise<
   | { kind: 'prompt'; message: string }
-  | { kind: 'awaiting_link'; message: string }
   | { kind: 'completed'; user: UserProfile }
 > {
   const text = inboundText.trim();
@@ -239,16 +238,7 @@ export async function advanceOnboarding(
 
   await supabase.from('onboarding_sessions').delete().eq('phone', latest.phone);
 
-  const signupUrl = buildSignupUrl(user.phone);
-  const first = latest.first_name;
-
-  return {
-    kind: 'awaiting_link',
-    message:
-      `thanks, ${first}.\n\n` +
-      `last step — connect your payment with Link (takes about a minute):\n${signupUrl}\n\n` +
-      `text me when you're done.`,
-  };
+  return { kind: 'completed', user };
 }
 
 export function linkSetupReminderMessage(phone: string): string {

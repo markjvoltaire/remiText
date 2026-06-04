@@ -72,10 +72,6 @@ import {
   parseMealPeriodFromText,
   type MealPeriod,
 } from '../utils/restaurantTimeFilter.js';
-import {
-  formatLinkPendingContext,
-  isLinkWalletConnected,
-} from '../services/onboarding.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import {
@@ -1660,8 +1656,7 @@ export async function runAgentLoop(
     : user.name
       ? `User profile: name=${user.name}.`
       : '';
-  const linkPending = !isLinkWalletConnected(user) ? formatLinkPendingContext(user) : '';
-  const contextParts = [profileContext, linkPending, flightPending, restaurantPending, restaurantConfirmPending].filter(
+  const contextParts = [profileContext, flightPending, restaurantPending, restaurantConfirmPending].filter(
     Boolean,
   );
   const todayISO = new Date().toISOString().split('T')[0]!;
