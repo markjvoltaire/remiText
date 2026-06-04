@@ -11,7 +11,6 @@ import { searchRestaurants, getRestaurantAvailability, reserveRestaurantTable, l
 import { computeAllInPrice, formatMoneyFromCents, logPriceBreakdown } from '../utils/pricing.js';
 import { setLastFlightSearch, clearLastFlightSearch, setLastRestaurantSearch, setPendingRestaurantBooking, clearPendingRestaurantBooking, setPendingOrder, clearPendingOrder, saveFlightBooking, confirmFlightBooking, saveRestaurantBooking, getActiveRestaurantBookings, markRestaurantBookingCancelled, setLinkConnectPending, } from '../services/supabase.js';
 import { filterVenuesByMealPeriod, filterSlotsByMealPeriod, mealPeriodLabel, normalizeMealPeriod, parseMealPeriodFromText, } from '../utils/restaurantTimeFilter.js';
-import { formatLinkPendingContext, isLinkWalletConnected, } from '../services/onboarding.js';
 import { resolveRelativeDates } from '../utils/resolveRelativeDates.js';
 import { formatDuffelError, isStaleOfferError } from '../utils/duffelErrors.js';
 import { isMonidConfigured, runSocialDiscovery, MonidNotConfiguredError, MonidApiError, } from '../services/monid.js';
@@ -1098,8 +1097,10 @@ async function executeTool(toolName, input, user, ctx) {
                 await clearPendingRestaurantBooking(user.id);
             }
             const slotGone = err instanceof ResyApiError &&
-                (err.status === 410 ||
-                    /no longer available|slot|taken|invalid book token/i.test(err.message));
+                (err.status === 409 ||
+                    err.status === 410 ||
+                    err.status === 412 ||
+                    /no longer available|slot|taken|invalid book token|conflict|already.*(booked|reserved)/i.test(err.message));
             return JSON.stringify({
                 error: true,
                 slot_taken: slotGone,
@@ -1338,8 +1339,7 @@ export async function runAgentLoop(userMessage, history, user, options = {}) {
         : user.name
             ? `User profile: name=${user.name}.`
             : '';
-    const linkPending = !isLinkWalletConnected(user) ? formatLinkPendingContext(user) : '';
-    const contextParts = [profileContext, linkPending, flightPending, restaurantPending, restaurantConfirmPending].filter(Boolean);
+    const contextParts = [profileContext, flightPending, restaurantPending, restaurantConfirmPending].filter(Boolean);
     const todayISO = new Date().toISOString().split('T')[0];
     const dateHint = userMessage.trim() || (options.images?.length ? 'screenshot' : '');
     const resolved = resolveRelativeDates(dateHint, todayISO);

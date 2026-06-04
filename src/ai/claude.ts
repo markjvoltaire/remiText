@@ -1372,8 +1372,12 @@ async function executeTool(
 
       const slotGone =
         err instanceof ResyApiError &&
-        (err.status === 410 ||
-          /no longer available|slot|taken|invalid book token/i.test(err.message));
+        (err.status === 409 ||
+          err.status === 410 ||
+          err.status === 412 ||
+          /no longer available|slot|taken|invalid book token|conflict|already.*(booked|reserved)/i.test(
+            err.message,
+          ));
 
       return JSON.stringify({
         error: true,

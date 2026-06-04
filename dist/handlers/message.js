@@ -2,7 +2,7 @@ import { attachment } from 'spectrum-ts';
 import { claimMessage, getUserByPhone, getConversationHistory, appendMessage, setLastSentPreviewCards, } from '../services/supabase.js';
 import { markRead, sendPhotoStack, resolveInboundReplyTarget, isReplyToOurMessage, enrichInboundFromPhoton } from '../services/imessage.js';
 import { runAgentLoop, isAnthropicCapacityError } from '../ai/claude.js';
-import { advanceOnboarding, cancelOnboarding, getOnboardingSession, handleAwaitingLinkMessage, isLinkWalletConnected, isOnboardingCancelMessage, startOnboarding, } from '../services/onboarding.js';
+import { advanceOnboarding, cancelOnboarding, getOnboardingSession, isOnboardingCancelMessage, startOnboarding, } from '../services/onboarding.js';
 import { normalizeContactKey } from '../utils/contactId.js';
 import { stripMarkdown } from '../utils/stripMarkdown.js';
 import { augmentBookRestaurantCommand, augmentLinkConnectApproval, augmentRestaurantBookingYes, augmentUserMessageWithReplyContext, augmentUserMessageWithSelection, inferPreviewKind, } from '../utils/replyContext.js';
@@ -47,50 +47,15 @@ export async function handleMessage(space, message) {
             return;
         }
         const result = await advanceOnboarding(session, text);
-        if (result.kind === 'prompt' || result.kind === 'awaiting_link') {
+        if (result.kind === 'prompt') {
             await space.send(result.message);
             return;
         }
         await space.send(welcomeMessage(result.user.name));
         return;
     }
-    let user = userRecord;
-    if (!isLinkWalletConnected(user)) {
-        const history = await getConversationHistory(user.id);
-        const linkResult = await handleAwaitingLinkMessage(user, text, history);
-        if (linkResult.kind === 'completed') {
-            user = linkResult.user;
-            if (/^(done|finished|all set|ready|approved|connected)\b/i.test(text.trim())) {
-                const welcome = welcomeMessage(user.name);
-                await appendMessage(user.id, 'user', text);
-                sessionAssistantLog(welcome);
-                await appendMessage(user.id, 'assistant', welcome);
-                await space.send(welcome);
-                return;
-            }
-        }
-        else if (linkResult.kind === 'reply') {
-            await appendMessage(user.id, 'user', text);
-            sessionAssistantLog(linkResult.message);
-            await appendMessage(user.id, 'assistant', linkResult.message);
-            await space.send(linkResult.message);
-            return;
-        }
-        // kind === 'continue' → run agent below (search, restaurants, etc.)
-    }
+    const user = userRecord;
     const history = await getConversationHistory(user.id);
-    const hadAssistantReply = history.some((m) => m.role === 'assistant');
-    if (!hadAssistantReply &&
-        /^(done|finished|all set|ready|i'm done|im done)\b/i.test(text.trim())) {
-        const refreshed = await getUserByPhone(contactKey);
-        if (refreshed && isLinkWalletConnected(refreshed)) {
-            const welcome = welcomeMessage(refreshed.name);
-            sessionAssistantLog(welcome);
-            await appendMessage(user.id, 'assistant', welcome);
-            await space.send(welcome);
-            return;
-        }
-    }
     console.log(`[msg] user=${user.id}`);
     let voiceTranscript = '';
     if (inboundVoice.length > 0) {

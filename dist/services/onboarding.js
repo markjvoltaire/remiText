@@ -192,14 +192,7 @@ export async function advanceOnboarding(session, inboundText) {
         city,
     });
     await supabase.from('onboarding_sessions').delete().eq('phone', latest.phone);
-    const signupUrl = buildSignupUrl(user.phone);
-    const first = latest.first_name;
-    return {
-        kind: 'awaiting_link',
-        message: `thanks, ${first}.\n\n` +
-            `last step — connect your payment with Link (takes about a minute):\n${signupUrl}\n\n` +
-            `text me when you're done.`,
-    };
+    return { kind: 'completed', user };
 }
 export function linkSetupReminderMessage(phone) {
     const url = buildSignupUrl(phone);
